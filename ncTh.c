@@ -4,7 +4,6 @@
 #include "commonProto.h"
 #include <stdlib.h>
 #include <errno.h>
-#include <Thread.h>
 #include <string.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -32,28 +31,46 @@
 #include <signal.h>
 #include <pthread.h>
 
+struct connection connections[10];
+pthread_t threads[10];
 
-struct connection* connections[10];
 void* threadHandler(void* socket){
     int fd = *((int *) socket);
     int n;
-    char buff[256];
+    char buff[1024];
     while(1){
         n = recv(fd, buff, sizeof buff, 0);
+        int sent = 0;
         if(n > 0){
-            for(int i = 0 ; i < 10 ; i++){
-                if(*(connections->i->inUse) == true && *(connections->i->socketFD) != fd){
-                    if(send(*(connections->i->socketFD), buff, n , 0) != -1){
-                        printf("succsfully sent message to others")
-                    }else{
-                        printf("couldn't send message to others");
+            while(sent < n) {
+                int sentNow;
+                for (int i = 0; i < 10; i++) {
+                    if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
+                        if (sentNow = send(connections[i].socketFD, buff + sent, n - sent, 0) != -1) {
+                            printf("succsfully sent message to others");
+                        } else {
+                            printf("couldn't send message to others");
+                            break;
+                        }
                     }
                 }
+                if(sentNow == -1){
+                    break;
+                } else {
+                    sent += sentNow;
+                }
             }
-        }else{
-            printf("nothign to send");
+        }else if(n == 0 | n == -1){
+            break;
         }
     }
+    for(int i = 0 ; i < 10 ; i++){
+        if(connections[i].socketFD == fd){
+            connections[i].inUse = FALSE;
+            break;
+        }
+    }
+    close(fd);
 }
 
 int main(int argc, char **argv) {
@@ -64,16 +81,14 @@ int main(int argc, char **argv) {
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
   int socketServer;
-  int connectionSocket;
-  struct addrinfo serverAddr;
+  struct sockaddr_in serverAddr;
   //creating the socket
   socketServer = socket(AF_INET, SOCK_STREAM, 0);
   //setting properties of teh serverAddr
   memset(&serverAddr, 0, sizeof serverAddr);
-  serverAddr.ai_family = AF_NET;
-  serverAddr.ai_socktype = SOCK_STREAM;
-  serverAddr.ai_flags = AI_PASSIVE;
-
+  serverAddr.sin_family = AF_INET;
+  serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+  serverAddr.sin_port = htons(SERVER_PORT);
 
 
     //if binding port with the socket is successful
@@ -82,20 +97,21 @@ int main(int argc, char **argv) {
             int connectionNumber = 0;
             pthread_t tid;
             //list of connections
-            struct connection* connections[10];
-            listen(sockid,20);
+            listen(socketServer,20);
             while(1){
-                connectionSocket = accept(socketServer, );
+                struct addrinfo clientAddress;
+                int connectionSocket;
+                connectionSocket = accept(socketServer,(struct sockaddr *)&serverAddr, (int*) sizeof(clientAddress));
                 if(connectionSocket == -1) {
                     printf("accept error");
                     continue;
                 }
                 printf("connection accepted");
-                for(int i = 0; i < connections.length ; i++){
-                    if(*(connections->i->inUse) == false){
-                        *(connections->i->inUse) = true;
-                        *(connections->i->socketFD) = *(int *) connectionSocket;
-                        if(pthread_create(&i, NULL, threadHandler, (&connectionSocket) < 0)) {
+                for(int i = 0; i < 10 ; i++){
+                    if(connections[i].inUse == FALSE){
+                        connections[i].inUse = TRUE;
+                        connections[i].socketFD = connectionSocket;
+                        if(pthread_create(&threads[i], NULL, threadHandler, &connectionSocket) < 0){
                             printf("thread creation error");
                         } else {
                             printf("thread created succesfully");
@@ -105,38 +121,9 @@ int main(int argc, char **argv) {
                 }
             }
     }else{
-      close(sockid);
+      close(socketServer);
       printf("server: bind failure");
     }
-
-
-
-
-//  int sockfd;
-//  if(retVal == PARSE_OK) {
-//    for()
-//       sockfd = socket(AF_INET, SOCK_STREAM, 0);
-//    if (sockfd == -1) {
-//        printf("socket creation failed...\n");
-//        exit(0);
-//    }
-//    else
-//        memset()
-//  }
-//
-//  int sockfd, numbytes;
-//  char buf[MAXDATASIZE];
-//  struct addrinfo hints, *servinfo, *p;
-//  int rv;
-//
-//  memset(&hints, 0, sizeof hints);
-//  hints.ai_family = AF_UNSPEC;
-//  hints.ai_socktype = SOCK_STREAM;
-//
-//  if ((rv = getaddrinfo(argv[1], PORT, &hints, &servinfo)) != 0) {
-//    // fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
-//    return 1;
-//  }
 
   
   printf("Command parse outcome %d\n", retVal);

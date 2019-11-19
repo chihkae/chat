@@ -1,6 +1,10 @@
 #ifndef COMMONPROTO
 #define COMMONPROTO
 #define RESERVED_PORT 1023
+typedef int bool;
+#define TRUE  1
+#define FALSE 0
+#define SERVER_PORT 3000
 
 struct commandOptions {
   int option_k;   // indicates if -k was provided.
@@ -13,18 +17,6 @@ struct commandOptions {
   char * hostname;           // The hostname or IP address to connect to
                              // when in client mode
   unsigned int port;               // Port to connect to when in client mode
-};
-
-struct addrinfo {
-    int              ai_flags;     // AI_PASSIVE, AI_CANONNAME, etc.
-    int              ai_family;    // AF_INET, AF_INET6, AF_UNSPEC
-    int              ai_socktype;  // SOCK_STREAM, SOCK_DGRAM
-    int              ai_protocol;  // use 0 for "any"
-    size_t           ai_addrlen;   // size of ai_addr in bytes
-    struct sockaddr *ai_addr;      // struct sockaddr_in or _in6
-    char            *ai_canonname; // full canonical hostname
-
-    struct addrinfo *ai_next;      // linked list, next node
 };
 
 struct connection{
