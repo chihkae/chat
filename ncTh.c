@@ -77,10 +77,10 @@ int main(int argc, char **argv) {
   
   // This is some sample code feel free to delete it
   // This is the main program for the thread version of nc
-  printf("fdfdsfsdfsd");
+  fprintf(stderr,"%sfdfdsfsdfsd","dfdfdfdfd");
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
-  printf("dffdfdfdf");
+  fprintf(stderr,"%sdffdfdfdf", "dfdfdfdf");
   int socketServer;
   struct sockaddr_in serverAddr;
   //creating the socket
