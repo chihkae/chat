@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
 
     //if binding port with the socket is successful
     if(bind(socketServer, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) != -1){
+        printf("succesfully binded");
         //20 maximum connection requests
             int connectionNumber = 0;
             pthread_t tid;
@@ -121,8 +122,8 @@ int main(int argc, char **argv) {
                 }
             }
     }else{
-      close(socketServer);
-      printf("server: bind failure");
+        printf("server: bind failure");
+        close(socketServer);
     }
 
   
