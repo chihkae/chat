@@ -67,10 +67,10 @@ void* threadHandler(void* socket){
     for(int i = 0 ; i < 10 ; i++){
         if(connections[i].socketFD == fd){
             connections[i].inUse = FALSE;
+            pthread_cancel(threads[i]);
             break;
         }
     }
-    close(fd);
 }
 
 int main(int argc, char **argv) {
@@ -105,7 +105,7 @@ int main(int argc, char **argv) {
                 int connectionSocket;
                 connectionSocket = accept(socketServer,(struct sockaddr *)&serverAddr, (int*) sizeof(clientAddress));
                 if(connectionSocket == -1) {
-                    fprintf(stderr,"%s", "connection accepted");
+                    fprintf(stderr,"%s", "connection denied");
                     continue;
                 }
                 fprintf(stderr,"%s","connection accepted");
