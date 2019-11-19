@@ -47,9 +47,9 @@ void* threadHandler(void* socket){
                 for (int i = 0; i < 10; i++) {
                     if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
                         if (sentNow = send(connections[i].socketFD, buff + sent, n - sent, 0) != -1) {
-                            printf("succsfully sent message to others");
+                            fprintf(stderr,"%s","succsfully sent message to others");
                         } else {
-                            printf("couldn't send message to others");
+                            fprintf(stderr,"%s","couldn't send message to others");
                             break;
                         }
                     }
@@ -77,10 +77,10 @@ int main(int argc, char **argv) {
   
   // This is some sample code feel free to delete it
   // This is the main program for the thread version of nc
-  fprintf(stderr,"%sfdfdsfsdfsd","dfdfdfdfd");
+  fprintf(stderr,"%s","dfdfdfdfd");
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
-  fprintf(stderr,"%sdffdfdfdf", "dfdfdfdf");
+  fprintf(stderr,"%s", "dfdfdfdf");
   int socketServer;
   struct sockaddr_in serverAddr;
   //creating the socket
@@ -94,7 +94,7 @@ int main(int argc, char **argv) {
 
     //if binding port with the socket is successful
     if(bind(socketServer, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) != -1){
-        printf("succesfully binded");
+        fprintf(stderr,"%s", "succesfully binded");
         //20 maximum connection requests
             int connectionNumber = 0;
             pthread_t tid;
@@ -105,25 +105,25 @@ int main(int argc, char **argv) {
                 int connectionSocket;
                 connectionSocket = accept(socketServer,(struct sockaddr *)&serverAddr, (int*) sizeof(clientAddress));
                 if(connectionSocket == -1) {
-                    printf("accept error");
+                    fprintf(stderr,"%s", "connection accepted");
                     continue;
                 }
-                printf("connection accepted");
+                fprintf(stderr,"%s","connection accepted");
                 for(int i = 0; i < 10 ; i++){
                     if(connections[i].inUse == FALSE){
                         connections[i].inUse = TRUE;
                         connections[i].socketFD = connectionSocket;
                         if(pthread_create(&threads[i], NULL, threadHandler, &connectionSocket) < 0){
-                            printf("thread creation error");
+                            fprintf(stderr,"%s","thread creation error");
                         } else {
-                            printf("thread created succesfully");
+                            fprintf(stderr,"%s","thread created succesfully");
                         }
                         break;
                     }
                 }
             }
     }else{
-        printf("server: bind failure");
+        fprintf(stderr,"%s","server: bind failure");
         close(socketServer);
     }
 
