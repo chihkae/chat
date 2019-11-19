@@ -77,7 +77,7 @@ int main(int argc, char **argv) {
   
   // This is some sample code feel free to delete it
   // This is the main program for the thread version of nc
-  
+  printf("fdfdsfsdfsd");
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
   int socketServer;
