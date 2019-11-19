@@ -80,6 +80,7 @@ int main(int argc, char **argv) {
   printf("fdfdsfsdfsd");
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
+  printf("dffdfdfdf");
   int socketServer;
   struct sockaddr_in serverAddr;
   //creating the socket
@@ -93,7 +94,7 @@ int main(int argc, char **argv) {
 
     //if binding port with the socket is successful
     if(bind(socketServer, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) != -1){
-        printf("succesfully binded");
+        fprintf("succesfully binded");
         //20 maximum connection requests
             int connectionNumber = 0;
             pthread_t tid;
@@ -104,7 +105,7 @@ int main(int argc, char **argv) {
                 int connectionSocket;
                 connectionSocket = accept(socketServer,(struct sockaddr *)&serverAddr, (int*) sizeof(clientAddress));
                 if(connectionSocket == -1) {
-                    printf("accept error");
+                    fprintf("accept error");
                     continue;
                 }
                 printf("connection accepted");
