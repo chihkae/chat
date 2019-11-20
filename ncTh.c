@@ -82,6 +82,7 @@ int main(int argc, char **argv) {
   int retVal = parseOptions(argc, argv, &cmdOps);
   fprintf(stderr,"%s", "dfdfdfdf");
   int socketServer;
+  struct sockaddr_storage their_addr;
   struct sockaddr_in serverAddr;
   //creating the socket
   socketServer = socket(AF_INET, SOCK_STREAM, 0);
@@ -103,7 +104,7 @@ int main(int argc, char **argv) {
             while(1){
                 struct addrinfo clientAddress;
                 int connectionSocket;
-                connectionSocket = accept(socketServer,(struct sockaddr *)&serverAddr, (int*) sizeof(clientAddress));
+                connectionSocket = accept(socketServer,(struct sockaddr *)&their_addr, (int*)sizeof clientAddress);
                 if(connectionSocket == -1) {
                     fprintf(stderr,"%s", "connection denied");
                     continue;
