@@ -103,9 +103,8 @@ int main(int argc, char **argv) {
             while(1){
                 struct addrinfo clientAddress;
                 int connectionSocket;
-                struct sockaddr_storage their_addr;
-                socklen_t addr_size = sizeof their_addr;
-                connectionSocket = accept(socketServer,(struct sockaddr *)&their_addr, &addr_size);
+                socklen_t addr_size = sizeof clientAddress;
+                connectionSocket = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
                 if(connectionSocket == -1) {
                     fprintf(stderr,"%s", "connection denied");
                     continue;
