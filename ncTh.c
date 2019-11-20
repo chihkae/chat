@@ -40,14 +40,15 @@ void* threadHandler(void* socket){
     char buff[1024];
     while(1){
         n = recv(fd, buff, sizeof buff, 0);
+        int bytesLeft = n;
+        int sentNow;
         fprintf(stderr,"%d", n);
         int sent = 0;
         if(n > 0){
             while(sent < n) {
-                int sentNow;
                 for (int i = 0; i < 10; i++) {
                     if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
-                        if (sentNow = send(connections[i].socketFD, buff + sent, n - sent, 0) != -1) {
+                        if (sentNow = send(connections[i].socketFD, buff + sent, bytesLeft, 0) != -1) {
                             fprintf(stderr,"%d%s",i,"succsfully sent message to others");
                         } else {
                             fprintf(stderr,"%s",i,"couldn't send message to others");
@@ -59,6 +60,7 @@ void* threadHandler(void* socket){
                     break;
                 } else {
                     sent += sentNow;
+                    bytesLeft -= sentNow;
                 }
             }
         }else if(n == 0 | n == -1){
