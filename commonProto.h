@@ -4,7 +4,7 @@
 typedef int bool;
 #define TRUE  1
 #define FALSE 0
-#define SERVER_PORT 3000
+#define SERVER_PORT 34343
 
 struct commandOptions {
   int option_k;   // indicates if -k was provided.
