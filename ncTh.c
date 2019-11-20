@@ -40,6 +40,7 @@ void* threadHandler(void* socket){
     char buff[1024];
     while(1){
         n = recv(fd, buff, sizeof buff, 0);
+        fprintf(stderr,"%d", n);
         int sent = 0;
         if(n > 0){
             while(sent < n) {
@@ -47,9 +48,9 @@ void* threadHandler(void* socket){
                 for (int i = 0; i < 10; i++) {
                     if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
                         if (sentNow = send(connections[i].socketFD, buff + sent, n - sent, 0) != -1) {
-                            fprintf(stderr,"%s","succsfully sent message to others");
+                            fprintf(stderr,"%d%s",i,"succsfully sent message to others");
                         } else {
-                            fprintf(stderr,"%s","couldn't send message to others");
+                            fprintf(stderr,"%s",i,"couldn't send message to others");
                             break;
                         }
                     }
