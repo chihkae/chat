@@ -40,24 +40,26 @@ int sendall(int s, char *buf, int *len)
 }
 
 void reader(){
-    fprintf(stderr,"inside broadcaset function");
-    char line[100];
-    size_t len = sizeof line;
+    char line[1024];
+    memset(&line,0, sizeof line);
+    int len = sizeof line;
 
-    while ( fgets( line, 100, stdin ) != NULL )
+    while ( fgets( line, 1024, stdin ) != NULL)
     {
-        fprintf(stderr,"gotinput");
+        if(line[0] == '\n'){
+            break;
+        }
         for (int i = 2; i < 12; i++) {
             if (pfds[i].fd != -1) {
                 if (send(pfds[i].fd, line, len,0) == -1) {
-                    fprintf(stderr, "sendall failed\n");
                 } else {
-                    fprintf(stderr, "sendall success\n");
                 }
             }
         }
+        if(line[1024] == '0'){
+            break;
+        }
     }
-    fprintf(stderr,"got out of reader while loop");
 }
 
 void actAsServer(unsigned int port){
@@ -114,32 +116,31 @@ void actAsServer(unsigned int port){
                     if (pfds[i].revents & POLLIN) {
                         fprintf(stderr, "poll in happened\n");
                         if (pfds[i].fd == STDIN_FILENO) {
-                            fprintf(stderr, "in stdin\n");
-                            fprintf(stderr, "pfd[%d] has data to send\n", i);
-                            int nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-                            int sender_fd = pfds[i].fd;
-                            nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-                            sender_fd = pfds[i].fd;
-                            nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-                            sender_fd = pfds[i].fd;
-                            if (nbytes <= 0) {
-                                fprintf(stderr, "nbyts less than or equal to 0\n");
-                                break;
-//                                pfds[i].fd = -1;
-//                                fd_count--;
-//                                continue;
-                            } else {
-                                for (int y = 2; y < 12; y++) {
-                                    fprintf(stderr, "trying to send to others\n");
-                                    if (pfds[y].fd != -1) {
-                                        if (send(pfds[y].fd, buff, nbytes, 0) == -1) {
-                                            fprintf(stderr, "send failure\n");
-                                        } else {
-                                            fprintf(stderr, "send success\n");
-                                        }
-                                    }
-                                }
-                            }
+                            reader();
+//                            int nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
+//                            int sender_fd = pfds[i].fd;
+//                            nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
+//                            sender_fd = pfds[i].fd;
+//                            nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
+//                            sender_fd = pfds[i].fd;
+//                            if (nbytes <= 0) {
+//                                fprintf(stderr, "nbyts less than or equal to 0\n");
+//                                break;
+////                                pfds[i].fd = -1;
+////                                fd_count--;
+////                                continue;
+//                            } else {
+//                                for (int y = 2; y < 12; y++) {
+//                                    fprintf(stderr, "trying to send to others\n");
+//                                    if (pfds[y].fd != -1) {
+//                                        if (send(pfds[y].fd, buff, nbytes, 0) == -1) {
+//                                            fprintf(stderr, "send failure\n");
+//                                        } else {
+//                                            fprintf(stderr, "send success\n");
+//                                        }
+//                                    }
+//                                }
+//                            }
                         } else if (pfds[i].fd == socketServer) {
                             fprintf(stderr, "socket server got polled\n");
                             if (fd_count < 13) {
