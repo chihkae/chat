@@ -33,8 +33,8 @@
 
 struct connection connections[10];
 pthread_t threads[10];
-
-
+int dashROption = 0;
+int hasAcceptedAtLeastOneClient = 0;
 int sendall(int s, char *buf, int *len)
 {
     int total = 0;        // how many bytes we've sent
@@ -52,25 +52,52 @@ int sendall(int s, char *buf, int *len)
 
     return n==-1?-1:0; // return -1 on failure, 0 on success
 }
+int checkIfConnectionCountIsEmpty(){
+    for(int i =0 ; i < 10; i++){
+        if(connections[i].inUse == TRUE){
+            return 0;
+        }
+    }
+    fprintf(stderr,"there is still connection\n");
+    return 1;
+}
 
 void* reader(void* socket){
     fprintf(stderr,"inside broadcaset function");
     char line[100];
     int len = sizeof line;
+    memset(&line, 0, sizeof line);
 
-    while ( fgets( line, 100, stdin ) != NULL )
-    {
-        fprintf(stderr,"gotinput");
-        for (int i = 0; i < 10; i++) {
-            fprintf(stderr,"from stndard input");
-            fprintf(stderr, "loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
-            if (connections[i].inUse == TRUE) {
-                if (sendall(connections[i].socketFD, line, &len) == -1) {
-                    fprintf(stderr, "sendall failed\n");
-                } else {
-                    fprintf(stderr, "sendall success\n");
+    while(1) {
+        if (dashROption == 1 && hasAcceptedAtLeastOneClient == 1) {
+            fprintf(stderr, "checking");
+            if (checkIfConnectionCountIsEmpty() == 1) {
+                close(*(int *) socket);
+                fprintf(stderr, "No more clients,all connections closed\n");
+                exit(0);
+            }
+        }
+        while (fgets(line, 100, stdin) != NULL) {
+
+            fprintf(stderr, "gotinput\n");
+            fprintf(stderr, "dashRoption:%d\n", dashROption);
+            fprintf(stderr, "hasAcceptedAtleast oen connection:%d\n", hasAcceptedAtLeastOneClient);
+            for (int i = 0; i < 10; i++) {
+                fprintf(stderr, "from stndard input");
+                fprintf(stderr, "loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
+                if (connections[i].inUse == TRUE) {
+                    if (sendall(connections[i].socketFD, line, &len) == -1) {
+                        fprintf(stderr, "sendall failed\n");
+                    } else {
+                        fprintf(stderr, "sendall success\n");
+                    }
                 }
             }
+            int linelength = strlen(line);
+            if(linelength > 0 && line[linelength-1] == '\n'){
+                break;
+            }
+            memset(&line, 0, sizeof line);
         }
     }
 }
@@ -84,8 +111,8 @@ void* threadHandler(void* socket){
     while(1){
         memset(&buff[0],0, sizeof(buff));
         n = recv(fd, buff, sizeof buff, 0);
-        if(n < 0){
-            continue;
+        if(n == 0){
+            break;
         }
         fprintf(stderr,"n:%d\n",n);
         int len = strlen(buff);
@@ -134,8 +161,9 @@ void broadcastToAll(){
             }
         }
     }
-    return;
 }
+
+
 void actAsServer(unsigned int port){
     int socketServer;
     int socketServerAsClient;
@@ -171,9 +199,12 @@ void actAsServer(unsigned int port){
 
 
         while(1){
+            fprintf(stderr,"fdsfsdf");
             struct addrinfo clientAddress;
             int connectionSocket;
             socklen_t addr_size = sizeof clientAddress;
+
+            fprintf(stderr,"1");
             connectionSocket = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
             if(connectionSocket == -1) {
                 fprintf(stderr,"%s", "connection denied\n");
@@ -191,8 +222,9 @@ void actAsServer(unsigned int port){
                         fprintf(stderr,"%s","thread creation error\n");
                     } else {
                         fprintf(stderr,"%s","thread created succesfully\n");
+                        hasAcceptedAtLeastOneClient = 1;
+                        break;
                     }
-                    break;
                 }
             }
         }
@@ -209,6 +241,10 @@ int main(int argc, char **argv) {
   // This is the main program for the thread version of nc
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
+  fprintf(stderr,"dash r option:%d", cmdOps.option_r);
+  if(cmdOps.option_r == 1){
+      dashROption = 1;
+  }
 
   if(cmdOps.option_l == 1){
       if(cmdOps.port != (unsigned  int)0){

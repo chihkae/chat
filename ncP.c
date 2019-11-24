@@ -20,6 +20,8 @@ struct pollfd pfds[12];
 int number_fd = 10;
 int fd_count = 0;
 char buff[1024];
+bool dashRoption;
+bool closeAllConnections;
 
 int sendall(int s, char *buf, int *len)
 {
@@ -43,23 +45,24 @@ void reader(){
     char line[1024];
     memset(&line,0, sizeof line);
     int len = sizeof line;
-
-    while ( fgets( line, 1024, stdin ) != NULL)
-    {
-        if(line[0] == '\n'){
-            break;
-        }
+    char c;
+    while(fgets(line, 1024, stdin) != NULL){
         for (int i = 2; i < 12; i++) {
             if (pfds[i].fd != -1) {
-                if (send(pfds[i].fd, line, len,0) == -1) {
+                if (send(pfds[i].fd, line, len, 0) == -1) {
                 } else {
                 }
             }
         }
-        if(line[1024] == '0'){
+
+        int linelength = strlen(line);
+        if(linelength > 0 && line[linelength-1] == '\n'){
             break;
         }
+
+        memset(&line,0, sizeof line);
     }
+    fprintf(stderr,"out of while loop\n");
 }
 
 void actAsServer(unsigned int port){
@@ -96,7 +99,13 @@ void actAsServer(unsigned int port){
         fd_count = 2;
 
         while(1) {
+            if(closeAllConnections){
+                exit(0);
+            }
             int poll_count = poll(pfds, fd_count, -1);
+            if(closeAllConnections){
+                exit(0);
+            }
             fprintf(stderr, "after poll count");
             int connectSocket;
             struct addrinfo clientAddr;
@@ -117,30 +126,6 @@ void actAsServer(unsigned int port){
                         fprintf(stderr, "poll in happened\n");
                         if (pfds[i].fd == STDIN_FILENO) {
                             reader();
-//                            int nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-//                            int sender_fd = pfds[i].fd;
-//                            nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-//                            sender_fd = pfds[i].fd;
-//                            nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-//                            sender_fd = pfds[i].fd;
-//                            if (nbytes <= 0) {
-//                                fprintf(stderr, "nbyts less than or equal to 0\n");
-//                                break;
-////                                pfds[i].fd = -1;
-////                                fd_count--;
-////                                continue;
-//                            } else {
-//                                for (int y = 2; y < 12; y++) {
-//                                    fprintf(stderr, "trying to send to others\n");
-//                                    if (pfds[y].fd != -1) {
-//                                        if (send(pfds[y].fd, buff, nbytes, 0) == -1) {
-//                                            fprintf(stderr, "send failure\n");
-//                                        } else {
-//                                            fprintf(stderr, "send success\n");
-//                                        }
-//                                    }
-//                                }
-//                            }
                         } else if (pfds[i].fd == socketServer) {
                             fprintf(stderr, "socket server got polled\n");
                             if (fd_count < 13) {
@@ -167,10 +152,22 @@ void actAsServer(unsigned int port){
                             fprintf(stderr, "pfd[%d] has data to send\n", i);
                             int nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
                             int sender_fd = pfds[i].fd;
-                            if (nbytes <= 0) {
-                                fprintf(stderr, "nbyts less than or equal to 0\n");
-//                                pfds[i].fd = -1;
-//                                fd_count--;
+                            if (nbytes == 0) {
+                                fprintf(stderr, "client:%d, disconnected\n",i);
+                                pfds[i].fd = -1;
+                                fd_count--;
+                                if(dashRoption){
+                                    if(fd_count == 2){
+                                        fprintf(stderr,"all clients disconnected, closing socket \n");
+                                        pfds[0].fd = -1;
+                                        pfds[1].fd = -1;
+                                        closeAllConnections = TRUE;
+                                        close(socketServer);
+                                        break;
+                                    }
+                                } else {
+                                    continue;
+                                }
                             } else {
                                 for (int z = 2; z < 12; z++) {
                                     fprintf(stderr, "trying to send to others\n");
@@ -201,6 +198,7 @@ int main(int argc, char **argv) {
   
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
+  dashRoption = cmdOps.option_r;
   if(cmdOps.option_l == 1){
       fprintf(stderr,"acting as server");
       actAsServer(cmdOps.port);
