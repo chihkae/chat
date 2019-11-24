@@ -30,6 +30,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <pthread.h>
+#include <time.h>
 
 struct connection connections[10];
 pthread_t threads[10];
@@ -37,24 +38,30 @@ pthread_t clientRevThread;
 int dashROption = 0;
 int hasAcceptedAtLeastOneClient = 0;
 
+void setClientTimeOut(int socket){
+    int timeout = 5000;  // user timeout in milliseconds [ms]
+    // setsockopt (socket, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+}
+
 
 void* clientThreadHandler(void* socket){
     while(1){
-        char buffer[MAX_DATA_SIZE];
+        char buffer[1024];
         int * fd = (int *) socket;
-        int numbytes;
-        if ((numbytes = recv(*fd, buffer, MAX_DATA_SIZE-1, 0)) == -1) {
+        int numbytes = -1;
+        if ((numbytes = recv(*fd, buffer, (sizeof buffer) -1, 0)) == -1) {
             perror("recv");
-            // break;
+            break;
         }
+        fprintf(stderr, "%s", "TEST2\n");
         if(numbytes == 0){
             break;
         }
         buffer[numbytes] = '\0';
+        fprintf(stderr, "%s", buffer);
 
-        printf("client: received '%s'\n",buffer);
     }
-    fprintf(stderr, '%s', "canceling thread for client...\n");
+    fprintf(stderr, "%s", "canceling thread for client...\n");
     pthread_cancel(clientRevThread);
 }
 
@@ -105,18 +112,17 @@ void actAsClient(struct commandOptions cmdOps){
         } else {
             fprintf(stderr,"%s","output thread created succesfully");
         }
-        char buf[MAX_DATA_SIZE];
+        char buf[MAX_DATA_SIZE] ={0};
         fprintf(stderr, "%s","Enter a message: \n");
-        while(fgets(buf, MAX_DATA_SIZE , stdin) != NULL){
-            int length = MAX_DATA_SIZE;
+
+        while(fgets(buf, MAX_DATA_SIZE , stdin) != NULL ){
+            int length =  strlen(buf);
             while (length > 0)
-            {
+            {   
                 int i = send(socketClient, buf, length, 0);
                 length -= i;
-                // fprintf(stderr, '%s', i);
-                // printf(buf);
                 buf[i] = '\0';
-                printf("client: sent '%s", buf);
+                printf("client: sent %s", buf);
             }
         }
 
