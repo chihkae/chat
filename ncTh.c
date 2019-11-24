@@ -33,8 +33,96 @@
 
 struct connection connections[10];
 pthread_t threads[10];
+pthread_t clientRevThread;
 int dashROption = 0;
 int hasAcceptedAtLeastOneClient = 0;
+
+
+void* clientThreadHandler(void* socket){
+    while(1){
+        char buffer[MAX_DATA_SIZE];
+        int * fd = (int *) socket;
+        int numbytes;
+        if ((numbytes = recv(*fd, buffer, MAX_DATA_SIZE-1, 0)) == -1) {
+            perror("recv");
+            // break;
+        }
+        if(numbytes == 0){
+            break;
+        }
+        buffer[numbytes] = '\0';
+
+        printf("client: received '%s'\n",buffer);
+    }
+    fprintf(stderr, '%s', "canceling thread for client...\n");
+    pthread_cancel(clientRevThread);
+}
+
+void readClientInput(){
+    //
+}
+
+
+void actAsClient(struct commandOptions cmdOps){
+        int socketClient;
+        socketClient = socket(AF_INET, SOCK_STREAM, 0); 
+        struct sockaddr_in cli_addr, cli_addr1;
+        if (socketClient == -1) { 
+            fprintf(stderr, "%s", "socket creation failed...\n"); 
+        }else{
+            fprintf(stderr, "%s", "Socket successfully created..\n");
+        }
+        memset(&cli_addr, 0, sizeof cli_addr);
+        cli_addr.sin_family = AF_INET;
+        if(cmdOps.hostname){
+            struct hostent * hostnm = gethostbyname(cmdOps.hostname);
+            // inet_ntoa(*(long*)host->h_addr_list[0]));
+            cli_addr.sin_addr.s_addr =  *(long*)hostnm->h_addr_list[0];
+        }
+        cli_addr.sin_port = htons(cmdOps.port);
+
+        if(cmdOps.option_p){
+            memset(&cli_addr1, 0, sizeof cli_addr1);
+            cli_addr1.sin_family = AF_INET;
+            cli_addr1.sin_port = htons(cmdOps.source_port);
+            if (bind(socketClient, (struct sockaddr*) &cli_addr1, sizeof(struct sockaddr_in)) == 0) 
+                fprintf(stderr, "%s","Binded Correctly\n"); 
+            else
+            fprintf(stderr, "%s","Unable to bind\n");
+            
+        }
+
+        if(connect(socketClient, (struct sockaddr * ) &cli_addr, sizeof(cli_addr)) == -1){
+            fprintf(stderr, "%s", "connection failed...\n");
+        }else
+        {
+            fprintf(stderr, "%s","connection estalished ..\n");
+        }
+        
+
+        if(pthread_create(&clientRevThread, NULL, clientThreadHandler, &socketClient) < 0){
+            fprintf(stderr,"%s","output thread creation error");
+        } else {
+            fprintf(stderr,"%s","output thread created succesfully");
+        }
+        char buf[MAX_DATA_SIZE];
+        fprintf(stderr, "%s","Enter a message: \n");
+        while(fgets(buf, MAX_DATA_SIZE , stdin) != NULL){
+            int length = MAX_DATA_SIZE;
+            while (length > 0)
+            {
+                int i = send(socketClient, buf, length, 0);
+                length -= i;
+                // fprintf(stderr, '%s', i);
+                // printf(buf);
+                buf[i] = '\0';
+                printf("client: sent '%s", buf);
+            }
+        }
+
+}
+
+
 int sendall(int s, char *buf, int *len)
 {
     int total = 0;        // how many bytes we've sent
@@ -61,6 +149,7 @@ int checkIfConnectionCountIsEmpty(){
     fprintf(stderr,"there is still connection\n");
     return 1;
 }
+
 
 void* reader(void* socket){
     fprintf(stderr,"inside broadcaset function");
@@ -255,6 +344,8 @@ int main(int argc, char **argv) {
           actAsServer(0);
       }
   }
+
+  actAsClient(cmdOps);
   
   printf("Command parse outcome %d\n", retVal);
 
