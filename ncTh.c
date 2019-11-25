@@ -30,12 +30,103 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <pthread.h>
+#include <time.h>
 
 struct connection connections[11];
 pthread_t threads[10];
+pthread_t clientRevThread;
 int dashROption = 0;
 int hasAcceptedAtLeastOneClient = 0;
 
+void setClientTimeOut(int socket){
+    int timeout = 5000;  // user timeout in milliseconds [ms]
+    // setsockopt (socket, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+}
+
+
+void* clientThreadHandler(void* socket){
+    while(1){
+        char buffer[1024];
+        int * fd = (int *) socket;
+        int numbytes = -1;
+        if ((numbytes = recv(*fd, buffer, (sizeof buffer) -1, 0)) == -1) {
+            perror("recv");
+            break;
+        }
+        fprintf(stderr, "%s", "TEST2\n");
+        if(numbytes == 0){
+            break;
+        }
+        buffer[numbytes] = '\0';
+        fprintf(stderr, "%s", buffer);
+
+    }
+    fprintf(stderr, "%s", "canceling thread for client...\n");
+    pthread_cancel(clientRevThread);
+}
+
+void readClientInput(){
+    //
+}
+
+
+void actAsClient(struct commandOptions cmdOps){
+        int socketClient;
+        socketClient = socket(AF_INET, SOCK_STREAM, 0);
+        struct sockaddr_in cli_addr, cli_addr1;
+        if (socketClient == -1) {
+            fprintf(stderr, "%s", "socket creation failed...\n");
+        }else{
+            fprintf(stderr, "%s", "Socket successfully created..\n");
+        }
+        memset(&cli_addr, 0, sizeof cli_addr);
+        cli_addr.sin_family = AF_INET;
+        if(cmdOps.hostname){
+            struct hostent * hostnm = gethostbyname(cmdOps.hostname);
+            // inet_ntoa(*(long*)host->h_addr_list[0]));
+            cli_addr.sin_addr.s_addr =  *(long*)hostnm->h_addr_list[0];
+        }
+        cli_addr.sin_port = htons(cmdOps.port);
+
+        if(cmdOps.option_p){
+            memset(&cli_addr1, 0, sizeof cli_addr1);
+            cli_addr1.sin_family = AF_INET;
+            cli_addr1.sin_port = htons(cmdOps.source_port);
+            if (bind(socketClient, (struct sockaddr*) &cli_addr1, sizeof(struct sockaddr_in)) == 0)
+                fprintf(stderr, "%s","Binded Correctly\n");
+            else
+            fprintf(stderr, "%s","Unable to bind\n");
+
+        }
+
+        if(connect(socketClient, (struct sockaddr * ) &cli_addr, sizeof(cli_addr)) == -1){
+            fprintf(stderr, "%s", "connection failed...\n");
+        }else
+        {
+            fprintf(stderr, "%s","connection estalished ..\n");
+        }
+
+
+        if(pthread_create(&clientRevThread, NULL, clientThreadHandler, &socketClient) < 0){
+            fprintf(stderr,"%s","output thread creation error");
+        } else {
+            fprintf(stderr,"%s","output thread created succesfully");
+        }
+        char buf[MAX_DATA_SIZE] ={0};
+        fprintf(stderr, "%s","Enter a message: \n");
+
+        while(fgets(buf, MAX_DATA_SIZE , stdin) != NULL ){
+            int length =  strlen(buf);
+            while (length > 0)
+            {
+                int i = send(socketClient, buf, length, 0);
+                length -= i;
+                buf[i] = '\0';
+                printf("client: sent %s", buf);
+            }
+        }
+
+}
 
 int sendall(int s, char *buf, int *len){
     int total = 0;        // how many bytes we've sent
@@ -59,6 +150,7 @@ int checkIfConnectionCountIsEmpty(){
     }
     return 1;
 }
+
 
 void* reader(void* socket){
     int fd = *((int*)socket);
@@ -252,7 +344,9 @@ int main(int argc, char **argv) {
           actAsServer(0);
       }
   }
-  
+
+  actAsClient(cmdOps);
+
   printf("Command parse outcome %d\n", retVal);
 
   printf("-k = %d\n", cmdOps.option_k);
@@ -263,7 +357,8 @@ int main(int argc, char **argv) {
   printf("-p port = %d\n", cmdOps.source_port);
   printf("Timeout value = %d\n", cmdOps.timeout);
   printf("Host to connect to = %s\n", cmdOps.hostname);
-  printf("Port to connect to = %d\n", cmdOps.port);  
+  printf("Port to connect to = %d\n", cmdOps.port);
+
 }
 
 
