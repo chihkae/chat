@@ -112,10 +112,11 @@ void actAsClient(struct commandOptions cmdOps){
         } else {
             fprintf(stderr,"%s","output thread created succesfully");
         }
-        char buf[MAX_DATA_SIZE] ={0};
+        char buf[100];
+        memset(&buf[0],0, sizeof(buf));
         fprintf(stderr, "%s","Enter a message: \n");
 
-        while(fgets(buf, MAX_DATA_SIZE , stdin) != NULL ){
+        while(fgets(buf, sizeof(buf) , stdin) != NULL ){
             int length =  strlen(buf);
             while (length > 0)
             {

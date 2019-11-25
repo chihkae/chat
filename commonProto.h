@@ -9,6 +9,7 @@ typedef int bool;
 #define NO_INPUT 1
 #define TOO_LONG 2
 #define MAX_DATA_SIZE 100
+
 struct commandOptions {
   int option_k;   // indicates if -k was provided.
   int option_l;   // indicates if -l provided
