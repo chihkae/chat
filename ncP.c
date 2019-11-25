@@ -169,6 +169,7 @@ void actAsServer(unsigned int port){
                                     continue;
                                 }
                             } else {
+                                fprintf(stderr,"this is input %s",buff);
                                 for (int z = 2; z < 12; z++) {
                                     fprintf(stderr, "trying to send to others\n");
                                     if (pfds[z].fd != -1 && pfds[z].fd != sender_fd) {

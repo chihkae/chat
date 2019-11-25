@@ -31,40 +31,41 @@
 #include <signal.h>
 #include <pthread.h>
 
-struct connection connections[10];
+struct connection connections[11];
 pthread_t threads[10];
 int dashROption = 0;
 int hasAcceptedAtLeastOneClient = 0;
-int sendall(int s, char *buf, int *len)
-{
+
+
+int sendall(int s, char *buf, int *len){
     int total = 0;        // how many bytes we've sent
     int bytesleft = *len; // how many we have left to send
     int n;
-
     while(total < *len) {
-        n = send(s, buf+total, bytesleft, 0);
+        n = write(s, buf+total, bytesleft);
         if (n == -1) { break; }
         total += n;
         bytesleft -= n;
     }
 
     *len = total; // return number actually sent here
-
     return n==-1?-1:0; // return -1 on failure, 0 on success
 }
 int checkIfConnectionCountIsEmpty(){
-    for(int i =0 ; i < 10; i++){
+    for(int i =1 ; i < 11; i++){
         if(connections[i].inUse == TRUE){
             return 0;
         }
     }
-    fprintf(stderr,"there is still connection\n");
     return 1;
 }
 
 void* reader(void* socket){
-    fprintf(stderr,"inside broadcaset function");
-    char line[100];
+    int fd = *((int*)socket);
+    connections[0].inUse = TRUE;
+    connections[0].socketFD = fd;
+//    fprintf(stderr,"connection 0:%d inside reader\n", connections[0].socketFD);
+    char line[1024];
     int len = sizeof line;
     memset(&line, 0, sizeof line);
 
@@ -72,29 +73,31 @@ void* reader(void* socket){
         if (dashROption == 1 && hasAcceptedAtLeastOneClient == 1) {
             fprintf(stderr, "checking");
             if (checkIfConnectionCountIsEmpty() == 1) {
-                close(*(int *) socket);
                 fprintf(stderr, "No more clients,all connections closed\n");
+                close(fd);
                 exit(0);
             }
         }
         while (fgets(line, 100, stdin) != NULL) {
 
-            fprintf(stderr, "gotinput\n");
-            fprintf(stderr, "dashRoption:%d\n", dashROption);
-            fprintf(stderr, "hasAcceptedAtleast oen connection:%d\n", hasAcceptedAtLeastOneClient);
-            for (int i = 0; i < 10; i++) {
-                fprintf(stderr, "from stndard input");
-                fprintf(stderr, "loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
-                if (connections[i].inUse == TRUE) {
+//            fprintf(stderr, "gotinput\n");
+//            fprintf(stderr, "dashRoption:%d\n", dashROption);
+//            fprintf(stderr, "hasAcceptedAtleast oen connection:%d\n", hasAcceptedAtLeastOneClient);
+            for (int i = 1; i < 11; i++) {
+//                fprintf(stderr, "from stndard input");
+//                fprintf(stderr, "loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
+                if (connections[i].socketFD != fd && connections[i].inUse == TRUE) {
                     if (sendall(connections[i].socketFD, line, &len) == -1) {
-                        fprintf(stderr, "sendall failed\n");
+//                        fprintf(stderr, "sendall failed\n");
                     } else {
-                        fprintf(stderr, "sendall success\n");
+//                        fprintf(stderr, "sendall success\n");
                     }
                 }
             }
             int linelength = strlen(line);
-            if(linelength > 0 && line[linelength-1] == '\n'){
+            if(linelength > 0 && line[linelength-1] == '\n')
+            {
+//                fprintf(stderr,"breaking for new line");
                 break;
             }
             memset(&line, 0, sizeof line);
@@ -103,62 +106,46 @@ void* reader(void* socket){
 }
 
 
+
 void* threadHandler(void* socket){
     int fd = *((int *) socket);
-    fprintf(stderr,"fd:%d\n",fd);
+//    fprintf(stderr,"fd:%d\n",fd);
     int n;
     char buff[1024];
+//    fprintf(stderr,"connection 0 fd:%d\n",connections[0].socketFD);
     while(1){
         memset(&buff[0],0, sizeof(buff));
         n = recv(fd, buff, sizeof buff, 0);
         if(n == 0){
+//            fprintf(stderr,"didn't receive jack\n");
             break;
         }
-        fprintf(stderr,"n:%d\n",n);
+//        fprintf(stderr,"n:%d\n",n);
         int len = strlen(buff);
         int sent = 0;
         if(n > 0){
-            for (int i = 0; i < 10; i++) {
-                fprintf(stderr,"loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
+            fprintf(stderr,buff);
+            for (int i = 1; i < 11; i++) {
                 if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
-                    if (sendall(connections[i].socketFD, buff, &len) == -1) {
-                        fprintf(stderr,"sendall failed\n");
+//                    fprintf(stderr,"loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
+//                    fprintf(stderr,"mehhh\n");
+//                    fprintf(stderr,"checking connections\n");
+                    if (send(connections[i].socketFD, buff, sizeof(buff), 0) == -1) {
+//                        fprintf(stderr,"sendall failed\n");
                     } else {
                         fprintf(stderr,"sendall success\n");
                     }
                 }
             }
+            memset(&buff[0],0, sizeof(buff));
         }
     }
-    for(int i = 0 ; i < 10 ; i++){
+    for(int i = 1 ; i < 11 ; i++){
         if(connections[i].socketFD == fd){
-            fprintf(stderr, "killing thread:%d\n", i);
+//            fprintf(stderr, "killing thread:%d\n", i);
             connections[i].inUse = FALSE;
             pthread_cancel(threads[i]);
             break;
-        }
-    }
-}
-
-void broadcastToAll(){
-    fprintf(stderr,"inside broadcaset function");
-    int    c;
-    int len = 100;
-
-    char line[100];
-    while ( fgets( line, 100, stdin ) != NULL )
-    {
-        fprintf(stderr,"gotinput");
-        for (int i = 0; i < 10; i++) {
-            fprintf(stderr,"from stndard input");
-            fprintf(stderr, "loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
-            if (connections[i].inUse == TRUE) {
-                if (sendall(connections[i].socketFD, line, &len) == -1) {
-                    fprintf(stderr, "sendall failed\n");
-                } else {
-                    fprintf(stderr, "sendall success\n");
-                }
-            }
         }
     }
 }
@@ -167,16 +154,19 @@ void broadcastToAll(){
 void actAsServer(unsigned int port){
     int socketServer;
     int socketServerAsClient;
+    pthread_t pthreadServerSend;
+    pthread_t pthreadServerRec;
     struct sockaddr_in serverAddr;
     socklen_t serverAsClientaddr_size = sizeof serverAddr;
-    pthread_t pthread;
+
     //creating the socket
     socketServer = socket(AF_INET, SOCK_STREAM, 0);
     //setting properties of teh serverAddr
     memset(&serverAddr, 0, sizeof serverAddr);
     memset(&connections, 0, sizeof connections);
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    serverAddr.sin_addr.s_addr = INADDR_ANY;
+    bzero(&(serverAddr.sin_zero), 8);
     if(port != 0) {
         fprintf(stderr,"port given: %d",port);
         serverAddr.sin_port = htons((int)port);
@@ -185,51 +175,58 @@ void actAsServer(unsigned int port){
 
     //if binding port with the socket is successful
     if(bind(socketServer, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) != -1){
-        fprintf(stderr,"%s", "succesfully binded\n");
-        //20 maximum connection requests
-        int connectionNumber = 0;
-        pthread_t serverThread;
+//        fprintf(stderr,"%s", "succesfully binded\n");
         //list of connections
-        listen(socketServer,20);
-        if(pthread_create(&pthread, NULL, reader, &socketServer) < 0){
-            fprintf(stderr,"%s","thread creation error\n");
+        if (listen(socketServer, 20) == -1) {
+//            fprintf(stderr,"listen error\n");
+            exit(1);
+        }
+
+        if(pthread_create(&pthreadServerSend, NULL, reader, &socketServer) < 0){
+            fprintf(stderr,"%s","server sender thread creation error\n");
         } else {
-            fprintf(stderr,"%s","thread created succesfully\n");
+            fprintf(stderr,"%s","server sender thread created succesfully\n");
         }
 
 
+
         while(1){
-            fprintf(stderr,"fdsfsdf");
+//            fprintf(stderr,"fdsfsdf");
             struct addrinfo clientAddress;
             int connectionSocket;
             socklen_t addr_size = sizeof clientAddress;
 
-            fprintf(stderr,"1");
+//            fprintf(stderr,"1");
             connectionSocket = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
             if(connectionSocket == -1) {
-                fprintf(stderr,"%s", "connection denied\n");
+//                fprintf(stderr,"%s", "connection denied\n");
                 continue;
             }
-            fprintf(stderr,"%s","connection accepted\n");
-            for(int i = 0; i < 10 ; i++){
+//            fprintf(stderr,"%s","connection accepted\n");
+            for(int i = 1; i < 11 ; i++){
                 if(connections[i].inUse == FALSE){
-                    fprintf(stderr,"connection: %d\n", i);
-                    connections[i].inUse = TRUE;
-                    fprintf(stderr,"connection %d inUse %d\n", i, connections[i].inUse);
-                    connections[i].socketFD = connectionSocket;
-                    fprintf(stderr,"connection %d socketFD:%d\n", i,connections[i].socketFD);
                     if(pthread_create(&threads[i], NULL, threadHandler, &connectionSocket) < 0){
-                        fprintf(stderr,"%s","thread creation error\n");
+//                        fprintf(stderr,"%s","thread creation error\n");
                     } else {
-                        fprintf(stderr,"%s","thread created succesfully\n");
+//                       fprintf(stderr,"connection: %d\n", i);
+                        connections[i].inUse = TRUE;
+//                        fprintf(stderr,"connection %d inUse %d\n", i, connections[i].inUse);
+                        connections[i].socketFD = connectionSocket;
+//                        fprintf(stderr,"connection %d socketFD:%d\n", i,connections[i].socketFD);
+//                        fprintf(stderr,"%s","thread created succesfully\n");
                         hasAcceptedAtLeastOneClient = 1;
+//                        if(pthread_create(&receiverthreads[i], NULL,receiverHandler, &connectionSocket) < 0){
+////            fprintf(stderr,"%s","server reeiver thread creation error\n");
+//                        }else{
+////            fprintf(stderr,"%s","server receiver thread created succesfully\n");
+//                        }
                         break;
                     }
                 }
             }
         }
-    }else{
-        fprintf(stderr,"%s","server: bind failure");
+    } else {
+//        fprintf(stderr,"%s","server: bind failure");
         close(socketServer);
     }
 }
