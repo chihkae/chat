@@ -30,7 +30,7 @@
 #include <sys/wait.h>
 #include <signal.h>
 #include <pthread.h>
-#include <time.h>
+#include <sys/time.h>
 
 struct connection connections[11];
 pthread_t threads[10];
@@ -38,9 +38,11 @@ pthread_t clientRevThread;
 int dashROption = 0;
 int hasAcceptedAtLeastOneClient = 0;
 
-void setClientTimeOut(int socket){
-    int timeout = 5000;  // user timeout in milliseconds [ms]
-    // setsockopt (socket, SOL_TCP, TCP_USER_TIMEOUT, (char*) &timeout, sizeof (timeout));
+void setClientTimeOut(int socket, int timeout){
+    struct timeval tv;
+    tv.tv_sec = 5;
+    setsockopt (socket, SOL_SOCKET, SO_RCVTIMEO, (struct timeval*)&tv, sizeof(struct timeval));
+    fprintf(stderr,"timeout set\n");
 }
 
 
@@ -92,11 +94,14 @@ void actAsClient(struct commandOptions cmdOps){
             memset(&cli_addr1, 0, sizeof cli_addr1);
             cli_addr1.sin_family = AF_INET;
             cli_addr1.sin_port = htons(cmdOps.source_port);
-            if (bind(socketClient, (struct sockaddr*) &cli_addr1, sizeof(struct sockaddr_in)) == 0)
-                fprintf(stderr, "%s","Binded Correctly\n");
-            else
-            fprintf(stderr, "%s","Unable to bind\n");
-
+        }
+        if(cmdOps.timeout != 0){
+            setClientTimeOut(socketClient, cmdOps.timeout);
+        }
+        if (bind(socketClient, (struct sockaddr*) &cli_addr1, sizeof(struct sockaddr_in)) == 0) {
+            fprintf(stderr, "%s", "Binded Correctly\n");
+        }else {
+            fprintf(stderr, "%s", "Unable to bind\n");
         }
 
         if(connect(socketClient, (struct sockaddr * ) &cli_addr, sizeof(cli_addr)) == -1){
@@ -292,10 +297,10 @@ void actAsServer(unsigned int port){
 //            fprintf(stderr,"1");
             connectionSocket = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
             if(connectionSocket == -1) {
-//                fprintf(stderr,"%s", "connection denied\n");
+                fprintf(stderr,"%s", "connection denied\n");
                 continue;
             }
-//            fprintf(stderr,"%s","connection accepted\n");
+            fprintf(stderr,"%s","connection accepted\n");
             for(int i = 1; i < 11 ; i++){
                 if(connections[i].inUse == FALSE){
                     if(pthread_create(&threads[i], NULL, threadHandler, &connectionSocket) < 0){

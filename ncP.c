@@ -65,6 +65,108 @@ void reader(){
     fprintf(stderr,"out of while loop\n");
 }
 
+void actAsClient(struct commandOptions cmdOps){
+    int socketClient;
+    socketClient = socket(AF_INET, SOCK_STREAM, 0);
+    struct sockaddr_in cli_addr;
+    struct sockaddr_in remote_addr;
+    if (socketClient == -1) {
+        fprintf(stderr, "%s", "socket creation failed...\n");
+    }else{
+        fprintf(stderr, "%s", "Socket successfully created..\n");
+    }
+
+    memset(&cli_addr, 0, sizeof cli_addr);
+    memset(&remote_addr, 0, sizeof remote_addr);
+
+    cli_addr.sin_family = AF_INET;
+    cli_addr.sin_addr.s_addr = htonl(INADDR_ANY);
+    remote_addr.sin_family = AF_INET;
+
+    if(cmdOps.hostname){
+        fprintf(stderr,"provided remote hostname\n");
+        struct hostent * hostnm = gethostbyname(cmdOps.hostname);
+        // inet_ntoa(*(long*)host->h_addr_list[0]));
+        remote_addr.sin_addr.s_addr =  *(long*)hostnm->h_addr_list[0];
+    }else{
+        fprintf(stderr,"please provide hostname");
+    }
+    if(cmdOps.port != 0){
+        fprintf(stderr,"provided remote port\n");
+        remote_addr.sin_port = htons(cmdOps.port);
+    }else{
+        fprintf(stderr,"missing remote port\n");
+    }
+
+    if(cmdOps.option_p != 0){
+        fprintf(stderr,"source port provided\n");
+        cli_addr.sin_port = htons(cmdOps.source_port);
+    }
+
+    if (bind(socketClient, (struct sockaddr*) &cli_addr, sizeof(cli_addr) == 0)) {
+        fprintf(stderr, "%s", "Binded Correctly\n");
+    }else {
+        fprintf(stderr, "%s", "Unable to bind\n");
+    }
+
+    if(connect(socketClient, (struct sockaddr * ) &remote_addr, sizeof(remote_addr)) != -1){
+        fprintf(stderr,"succesfully connected\n");
+        struct pollfd clientPfds[2];
+        int clientfd_count;
+        clientPfds[0].fd = 0;
+        clientPfds[0].events = POLLIN;
+        clientPfds[1].fd = socketClient;
+        clientPfds[1].events = POLLIN;
+        clientfd_count = 2;
+        int poll_count;
+        while(1) {
+            if(cmdOps.timeout != 0){
+                poll_count = poll(clientPfds, clientfd_count, cmdOps.timeout);
+                fprintf(stderr,"provided time\n");
+            }else{
+                poll_count = poll(clientPfds, clientfd_count, -1);
+                fprintf(stderr,"didn't provided time\n");
+            }
+            if (poll_count == -1) {
+                fprintf(stderr, "poll count is -1");
+                exit(1);
+            } else if (poll_count == 0) {
+                fprintf(stderr, "timeout occured");
+                close(socketClient);
+                exit(0);
+            } else {
+                if (clientPfds[0].revents & POLLIN) {
+                    fprintf(stderr,"fsdfsdf");
+                    char buf[100];
+                    memset(&buf[0], 0, sizeof(buf));
+                    fprintf(stderr, "%s", "Enter a message: \n");
+
+                    while (fgets(buf, sizeof(buf), stdin) != NULL) {
+                        int length = strlen(buf);
+                        while (length > 0) {
+                            int i = send(socketClient, buf, length, 0);
+                            length -= i;
+                            buf[i] = '\0';
+                            printf("client: sent %s", buf);
+                        }
+                        break;
+                        memset(&buf[0], 0, sizeof(buf));
+                    }
+                } else if (clientPfds[1].revents & POLLIN) {
+                    fprintf(stderr,"got message");
+                    memset(&buff,0, sizeof(buff));
+                    int nbytes = recv(clientPfds[1].fd, buff, sizeof buff, 0);
+                    fprintf(stderr, buff);
+                    memset(&buff,0, sizeof(buff));
+                }
+            }
+        }
+    }else{
+        fprintf(stderr,"connection failure\n");
+    }
+    fprintf(stderr,"outside\n");
+}
+
 void actAsServer(unsigned int port){
     int socketServer;
     struct sockaddr_in serverAddr;
@@ -203,6 +305,9 @@ int main(int argc, char **argv) {
   if(cmdOps.option_l == 1){
       fprintf(stderr,"acting as server");
       actAsServer(cmdOps.port);
+  }else{
+      fprintf(stderr,"acting as client\n");
+      actAsClient(cmdOps);
   }
   printf("Command parse outcome %d\n", retVal);
 
