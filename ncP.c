@@ -167,8 +167,9 @@ void actAsClient(struct commandOptions cmdOps){
     fprintf(stderr,"outside\n");
 }
 
-void actAsServer(unsigned int port){
+void actAsServer(unsigned int port, struct commandOptions cmdOps){
     int socketServer;
+    int numofConnections = 0;
     struct sockaddr_in serverAddr;
     socklen_t serverAsClientaddr_size = sizeof serverAddr;
     //creating the socket
@@ -181,6 +182,11 @@ void actAsServer(unsigned int port){
     if(port != 0) {
         fprintf(stderr,"port given: %d",port);
         serverAddr.sin_port = htons((int)port);
+    }
+    if(cmdOps.option_r == 1){
+        numofConnections = 12;
+    }else{
+        numofConnections = 3;
     }
 
 
@@ -237,7 +243,7 @@ void actAsServer(unsigned int port){
                                 fprintf(stderr,"connetion socket:%d\n", connectSocket);
                                 if (connectSocket != -1) {
                                     fprintf(stderr,"connection socket is not -1");
-                                    for (int j = 2; j < 12; j++) {
+                                    for (int j = 2; j < numofConnections; j++) {
                                         fprintf(stderr,"pfds j is: %d\n",pfds[j].fd);
                                         if (pfds[j].fd < 0) {
                                             fprintf(stderr, "adding connection:%d\n", j);
@@ -304,7 +310,7 @@ int main(int argc, char **argv) {
   dashRoption = cmdOps.option_r;
   if(cmdOps.option_l == 1){
       fprintf(stderr,"acting as server");
-      actAsServer(cmdOps.port);
+      actAsServer(cmdOps.port, cmdOps);
   }else{
       fprintf(stderr,"acting as client\n");
       actAsClient(cmdOps);
