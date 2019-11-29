@@ -28,65 +28,71 @@
 #include <unistd.h>
 #include <time.h>
 
+//for server only array of 10 connection structs with each elem containing fd, and inUse boolean
 struct connection connections[10];
-pthread_t threads[10];
-pthread_t clientRevThread;
-pthread_t timerThread;
-int dashROption = 0;
+pthread_t threads[10]; //array of threads for each connection in server
+pthread_t clientRevThread; //thread in client to receive message from server it's connected to
+pthread_t timerThread; //thread to keep track of timeout
+pthread_t connectionCloser; //thread to close server in -l without -k
+int dashROption = 0; //if dashRoption is enabled
+int dashKOption = 0; //if server should exit when number of connections goes to 0
 int hasAcceptedAtLeastOneClient = 0;
-int numReady;
-fd_set readset;
-bool receivetimeout;
-bool sendtimeout;
-clock_t time1;
-clock_t time2;
-void setClientTimeOut(int socket, int timeout){
-    fprintf(stderr,"socket:%d\n",socket);
-    struct timeval tv;
-    tv.tv_sec       = 10;
-    fprintf(stderr,"tv.tvsec: %d\n", tv.tv_sec);
-    int ret = setsockopt (socket, SOL_SOCKET, SO_RCVTIMEO, (char*)&tv, sizeof(tv));
-    if(ret == -1){
-        printf("shm_open error, errno(%d): %s\n", errno, strerror(errno));
-    }
-    fprintf(stderr,"timeout set:%d\n", ret);
-}
+clock_t time1; //tracks how long we have not received message from server
+clock_t time2; //tracks how long client has not entered in stdin
+int timelimit;
 
-
+int sendall(int s, char *buf, int *len);
 void* clientThreadHandler(void* socket){
     while(1){
         char buffer[1024];
+        memset(&buffer[0],0, sizeof(buffer));
         int fd = *(int *) socket;
-        int numbytes = -1;
+        int numbytes;
         time1 = clock();
-        if ((numbytes = recv(fd, buffer, (sizeof buffer) - 1, 0)) == -1) {
+        numbytes = recv(fd, buffer, sizeof(buffer), 0);
+        if (numbytes == -1) {
             perror("recv");
             break;
         }
-        fprintf(stderr, "%s", "TEST2\n");
         if (numbytes == 0) {
-                break;
+            continue;
         }
-        buffer[numbytes] = '\0';
-        fprintf(stderr, "%s", buffer);
+        if(numbytes > 0) {
+            int len = strlen(buffer);
+            if (write(1, buffer, len) < 0) {
+                fprintf(stderr, "write to stdout error\n");
+            }
+        }
     }
+    int fd = *(int*)socket;
     fprintf(stderr, "%s", "canceling thread for client...\n");
+    if(close(fd) < 0){
+        fprintf(stderr,"socket close failure\n");
+    }
     pthread_cancel(clientRevThread);
     exit(0);
 }
 
-void* timer(void* timeLimit){
-
+//function that runs inside the timeout thread
+//if the time difference between when client last received message from server or the time difference between when
+//client entered message to stdin is greater than the time limit threshold specified by the user the client is to
+//disconnect
+void* timer(void* socket){
+    int fd = *(int*)socket;
+    //keep looping to see if the client has timed out
     while(1){
         double timedif1 = ( ((double) clock()) / CLOCKS_PER_SEC) - (((double) time1) / CLOCKS_PER_SEC);
         double timedif2 = ( ((double) clock()) / CLOCKS_PER_SEC) - (((double) time2) / CLOCKS_PER_SEC);
-        if(timedif1 > (*(int*)timeLimit) && timedif2 > (*(int*)timeLimit)){
+        if(timedif1 > timelimit && timedif2 > timelimit){
             fprintf(stderr,"timeout\n");
             break;
         }
     }
     fprintf(stderr,"exiting because of timeout\n");
-    close(0);
+    if(close(fd) < 0){
+        fprintf(stderr,"socket closing failure\n");
+    }
+    exit(0);
 }
 
 
@@ -96,42 +102,57 @@ void actAsClient(struct commandOptions cmdOps){
         fprintf(stderr,"socketClient:%d\n",socketClient);
         struct sockaddr_in server_addr, client_addr;
         if (socketClient == -1) {
-            fprintf(stderr, "%s", "socket creation failed...\n");
+            if(cmdOps.option_v) {
+                fprintf(stderr, "%s", "socket creation failed...\n");
+            }
         }else{
-            fprintf(stderr, "%s", "Socket successfully created..\n");
+            if(cmdOps.option_v) {
+                fprintf(stderr, "%s", "Socket successfully created..\n");
+            }
         }
+
         memset(&server_addr, 0, sizeof server_addr);
         memset(&client_addr,0, sizeof client_addr);
         server_addr.sin_family = AF_INET;
-        if(cmdOps.hostname){
+        if(cmdOps.hostname != NULL){
             struct hostent * hostnm = gethostbyname(cmdOps.hostname);
-            // inet_ntoa(*(long*)host->h_addr_list[0]));
             server_addr.sin_addr.s_addr =  *(long*)hostnm->h_addr_list[0];
         }
         if(cmdOps.port!= 0){
+            if(cmdOps.port < 1023 || cmdOps.port > 65535 ){
+                fprintf(stderr,"invalid: using reserved ports\n");
+                exit(1);
+            }
             server_addr.sin_port = htons(cmdOps.port);
         }
 
-        if(cmdOps.option_p){
+        if(cmdOps.option_p != 0){
+            if(cmdOps.source_port < 1023 || cmdOps.source_port > 65535){
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "invalid source port: reserved ports\n");
+                }
+                exit(0);
+            }
             client_addr.sin_family = AF_INET;
             client_addr.sin_addr.s_addr = INADDR_ANY;
             client_addr.sin_port = htons(cmdOps.source_port);
             if(bind(socketClient,(struct sockaddr *) &client_addr, sizeof(client_addr)) == -1){
-                fprintf(stderr,"bound unsuccesfully\n");
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "bound unsuccesfully\n");
+                }
             }else{
                 fprintf(stderr,"bound sucesfully\n");
             }
         }
 
-//    setClientTimeOut(socketClient, cmdOps.timeout);
-    if(connect(socketClient, (struct sockaddr * ) &server_addr, sizeof(server_addr)) == -1){
+        if(connect(socketClient, (struct sockaddr * ) &server_addr, sizeof(server_addr)) == -1) {
+            if (cmdOps.option_v) {
             fprintf(stderr, "%s", "connection failed...\n");
-    }else{
-//            if(cmdOps.timeout != 0){
-    //                setClientTimeOut(socketClient, cmdOps.timeout);
-//            }
+            }
+        }else{
             fprintf(stderr, "%s","connection estalished ..\n");
-    }
+        }
+
         if(pthread_create(&clientRevThread, NULL, clientThreadHandler, &socketClient) < 0){
             fprintf(stderr,"%s","output thread creation error");
         } else {
@@ -139,47 +160,38 @@ void actAsClient(struct commandOptions cmdOps){
         }
 
         if(cmdOps.timeout != 0) {
-            if (pthread_create(&timerThread, NULL, timer,&cmdOps.timeout) < 0) {
+            if (pthread_create(&timerThread, NULL, timer,&socketClient) < 0) {
                 fprintf(stderr, "timer thread failed\n");
             } else {
+                timelimit = cmdOps.timeout;
                 fprintf(stderr, "timer thread created succesfully");
             }
         }
 
         while(1) {
             time2 = clock();
-            char line[1024];
-            memset(&line,0, sizeof line);
-            int len = sizeof line;
-            char c;
-            while(fgets(line, 1024, stdin) != NULL){
-                if (send(socketClient, line, len, 0) == -1) {
-                    fprintf(stderr,"send failure\n");
+            char ch[1024];
+            memset(&ch,0, sizeof ch);
+            while(read(0, &ch, 1) > 0)
+            {
+                int len = strlen(ch);
+                if (sendall(socketClient, ch, &len) == -1) {
+                    if(cmdOps.option_v) {
+                        fprintf(stderr, "send failure\n");
+                    }
                 } else {
                     fprintf(stderr,"send succes\n");
                 }
-
-                int linelength = strlen(line);
-                if(linelength > 0 && line[linelength-1] == '\n'){
+                if(ch[len-1] == '\n'){
                     break;
                 }
-
-                memset(&line,0, sizeof line);
+                memset(&ch,0, sizeof ch);
             }
-//            fprintf(stderr,"out of while loop\n");
-//                while (fgets(buf, sizeof(buf), stdin) != NULL) {
-//                    int length = strlen(buf);
-//                    while (length > 0) {
-//                        int i = send(socketClient, buf, length, 0);
-//                        length -= i;
-//                        buf[i] = '\0';
-//                        printf("client: sent %s", buf);
-//                    }
-//                }
         }
-        fprintf(stderr,"out of loop\n");
+        close(socketClient);
 }
 
+//helper to avoid partial sends, make sure we send all the input
 int sendall(int s, char *buf, int *len){
     int total = 0;        // how many bytes we've sent
     int bytesleft = *len; // how many we have left to send
@@ -194,8 +206,10 @@ int sendall(int s, char *buf, int *len){
     *len = total; // return number actually sent here
     return n==-1?-1:0; // return -1 on failure, 0 on success
 }
+
+//helper for server to check if it can close it's socket upon disconnection from all clients in -r
 int checkIfConnectionCountIsEmpty(){
-    for(int i =1 ; i < 11; i++){
+    for(int i =0 ; i < 10; i++){
         if(connections[i].inUse == TRUE){
             return 0;
         }
@@ -203,57 +217,62 @@ int checkIfConnectionCountIsEmpty(){
     return 1;
 }
 
-
+//used by server to read from stdin and broadcast to all clients connected
 void* reader(void* socket){
+    //server socket fd
     int fd = *((int*)socket);
-//    fprintf(stderr,"connection 0:%d inside reader\n", connections[0].socketFD);
-    char line[1024];
-    int len = sizeof line;
-    memset(&line, 0, sizeof line);
-
+    char ch[1024];
+    int len = sizeof ch;
+    //keep reading on stdin
     while(1) {
-        if (dashROption == 1 && hasAcceptedAtLeastOneClient == 1) {
-            fprintf(stderr, "checking");
-            if (checkIfConnectionCountIsEmpty() == 1) {
-                fprintf(stderr, "No more clients,all connections closed\n");
-                close(fd);
-                exit(0);
-            }
-        }
-        while (fgets(line, 100, stdin) != NULL) {
-             fprintf(stderr, "gotinput\n");
-//            fprintf(stderr, "dashRoption:%d\n", dashROption);
-//            fprintf(stderr, "hasAcceptedAtleast oen connection:%d\n", hasAcceptedAtLeastOneClient);
+        memset(&ch, 0, sizeof ch);
+
+        //read from stdin and send to all other clients connected to server
+        while(read(0, &ch, sizeof(ch)) > 0)
+        {
+            int len = strlen(ch);
             for (int i = 0; i < 10; i++) {
-//                fprintf(stderr, "from stndard input");
-//                fprintf(stderr, "loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
                 if (connections[i].socketFD != fd && connections[i].inUse == TRUE) {
-                    if (sendall(connections[i].socketFD, line, &len) == -1) {
+                    if (sendall(connections[i].socketFD,ch, &len) == -1) {
 //                        fprintf(stderr, "sendall failed\n");
                     } else {
 //                        fprintf(stderr, "sendall success\n");
                     }
                 }
             }
-            int linelength = strlen(line);
-            if(linelength > 0 && line[linelength-1] == '\n')
-            {
-//                fprintf(stderr,"breaking for new line");
+            if(ch[len-1] == '\n'){
                 break;
             }
-            memset(&line, 0, sizeof line);
+            memset(&ch, 0, sizeof ch);
         }
     }
 }
+//used for -k without -r to ckeck if the server should close when all clients exit
+void * closeServerUponAllConectionsLeft(void* socketServer){
+    while(1) {
+        int allconnectionsClosed = 1;
+        for (int i = 0; i < 10; i++) {
+            if(connections[i].inUse == TRUE){
+                allconnectionsClosed = 0;
+            }
+        }
+        if(allconnectionsClosed == 1 && hasAcceptedAtLeastOneClient == 1){
+            fprintf(stderr,"all connections closed\n");
+            break;
+        }
+    }
+    close(*(int*)socketServer);
+    exit(0);
+
+}
 
 
-
+//used to read messages from the client and send to all other connections
 void* threadHandler(void* socket){
     int fd = *((int *) socket);
-//    fprintf(stderr,"fd:%d\n",fd);
     int n;
     char buff[1024];
-//    fprintf(stderr,"connection 0 fd:%d\n",connections[0].socketFD);
+    //keep looping to see if the client sent message
     while(1){
         memset(&buff[0],0, sizeof(buff));
         n = recv(fd, buff, sizeof buff, 0);
@@ -264,17 +283,19 @@ void* threadHandler(void* socket){
             fprintf(stderr,"error\n");
             continue;
         }
-        fprintf(stderr,"n:%d\n",n);
+
         int len = strlen(buff);
-        int sent = 0;
+        //server received input from the client
         if(n > 0){
-            fprintf(stderr,buff);
+            if(write(1,buff,len) < 0){
+                fprintf(stderr,"write to stdout error\n");
+            }
+
+            //send message to all other clients connected to the server
             for (int i = 0; i < 10; i++) {
+                //not send the same message back to the client that sent the message
                 if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
-//                    fprintf(stderr,"loop %d, inUse: %d socketFD: %d\n", i, connections[i].inUse, connections[i].socketFD);
-//                    fprintf(stderr,"mehhh\n");
-//                    fprintf(stderr,"checking connections\n");
-                    if (send(connections[i].socketFD, buff, sizeof(buff), 0) == -1) {
+                    if (sendall(connections[i].socketFD, buff, &len) == -1) {
 //                        fprintf(stderr,"sendall failed\n");
                     } else {
                         fprintf(stderr,"sendall success\n");
@@ -284,10 +305,11 @@ void* threadHandler(void* socket){
             memset(&buff[0],0, sizeof(buff));
         }
     }
+    //given that a client with fd has disconnected, make slot in connections array previously occupied to be free
     for(int i = 0 ; i < 10 ; i++){
         if(connections[i].socketFD == fd){
-//            fprintf(stderr, "killing thread:%d\n", i);
             connections[i].inUse = FALSE;
+            //kill thread since it's no longer connected to the server
             pthread_cancel(threads[i]);
             break;
         }
@@ -295,16 +317,14 @@ void* threadHandler(void* socket){
 }
 
 
-void actAsServer(unsigned int port, struct commandOptions cmdOps){
-    int socketServer;
-    int numConnections = 0;
-    int socketServerAsClient;
-    pthread_t pthreadServerSend;
-    pthread_t pthreadServerRec;
-    struct sockaddr_in serverAddr;
+void actAsServer(struct commandOptions cmdOps){
+    int socketServer; //socket with which server will receive conncetions
+    int numConnections = 0; //connections server is to accept depending on -r or non
+    pthread_t pthreadServerSend; //thread to read from stdin and send to all other conections
+    struct sockaddr_in serverAddr; //for setting addrinfo of server
     socklen_t serverAsClientaddr_size = sizeof serverAddr;
 
-    //creating the socket
+    //creating the socket of the server
     socketServer = socket(AF_INET, SOCK_STREAM, 0);
     //setting properties of teh serverAddr
     memset(&serverAddr, 0, sizeof serverAddr);
@@ -312,78 +332,97 @@ void actAsServer(unsigned int port, struct commandOptions cmdOps){
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = INADDR_ANY;
     bzero(&(serverAddr.sin_zero), 8);
-    if(port != 0) {
-        fprintf(stderr,"port given: %d",port);
-        serverAddr.sin_port = htons((int)port);
+
+    if(cmdOps.port != 0) {
+        fprintf(stderr,"port given: %d",cmdOps.port);
+        if(cmdOps.port < 1023 || cmdOps.port > 65535){
+            fprintf(stderr,"invalid input reserved ports\n");
+            exit(1);
+        }
+        serverAddr.sin_port = htons(cmdOps.port);
     }
 
 
     //if binding port with the socket is successful
     if(bind(socketServer, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) != -1){
-//        fprintf(stderr,"%s", "succesfully binded\n");
-        //list of connections
-        if (listen(socketServer, 20) == -1) {
-//            fprintf(stderr,"listen error\n");
-            exit(1);
-        }
-
+        //creating thread to broadcast from server to all other connection
         if(pthread_create(&pthreadServerSend, NULL, reader, &socketServer) < 0){
             fprintf(stderr,"%s","server sender thread creation error\n");
         } else {
             fprintf(stderr,"%s","server sender thread created succesfully\n");
         }
 
-        if(cmdOps.option_k == 1 && cmdOps.option_r == 1){
-            fprintf(stderr,"enabling 10 connections");
+        if(cmdOps.option_r == 1){
             numConnections = 10;
         }else{
-            fprintf(stderr,"enabling one connection");
             numConnections = 1;
+        }
+        fprintf(stderr,"number of connections:%d",numConnections);
+
+        if (listen(socketServer, 20) == -1) {
+            if(cmdOps.option_v){
+                fprintf(stderr,"listen failure\n");
+            }
+            if(close(socketServer) < 0){
+                fprintf(stderr,"socket closing error\n");
+            }
+            exit(1);
+        }
+
+        //create a thread for closing the progrma when there are no more clients connected given that -k is not provided
+        if(cmdOps.option_k == 0){
+            if(pthread_create(&connectionCloser,NULL, closeServerUponAllConectionsLeft, &socketServer) < 0){
+                fprintf(stderr,"all connections closed thread creation error\n");
+            }
         }
 
 
-
+        //keep looping to accept more incoming connections
         while(1){
-//            fprintf(stderr,"fdsfsdf");
             struct addrinfo clientAddress;
-            int connectionSocket;
+            //fd of the client, to be overwritten for every new client
+            int connectionFD;
             socklen_t addr_size = sizeof clientAddress;
 
-//            fprintf(stderr,"1");
-            connectionSocket = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
-            if(connectionSocket == -1) {
-                fprintf(stderr,"%s", "connection denied\n");
-                continue;
-            }
-            fprintf(stderr,"%s","connection accepted\n");
+            //loop over connections array to find if we have a slot to accept the incoming connection
             for(int i = 0; i < numConnections ; i++){
-                fprintf(stderr,"i:%d",i);
                 if(connections[i].inUse == FALSE){
-                    fprintf(stderr,"found slot\n");
-                    if(pthread_create(&threads[i], NULL, threadHandler, &connectionSocket) < 0){
+                    //accept the connection and set the fd of the client
+                    connectionFD = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
+                    if(connectionFD == -1) {
+                        if (cmdOps.option_v) {
+                            fprintf(stderr, "%s", "connection denied\n");
+                        }
+                        continue;
+                    }
+                    fprintf(stderr,"accpeted a connection\n");
+                    //create thread for each incoming connection
+                    if(pthread_create(&threads[i], NULL, threadHandler, &connectionFD) < 0){
                         fprintf(stderr,"%s","thread creation error\n");
                     } else {
                         fprintf(stderr,"connection: %d\n", i);
                         connections[i].inUse = TRUE;
                         fprintf(stderr,"connection %d inUse %d\n", i, connections[i].inUse);
-                        connections[i].socketFD = connectionSocket;
-//                        fprintf(stderr,"connection %d socketFD:%d\n", i,connections[i].socketFD);
-//                        fprintf(stderr,"%s","thread created succesfully\n");
+                        connections[i].socketFD = connectionFD;
                         hasAcceptedAtLeastOneClient = 1;
-//                        if(pthread_create(&receiverthreads[i], NULL,receiverHandler, &connectionSocket) < 0){
-////            fprintf(stderr,"%s","server reeiver thread creation error\n");
-//                        }else{
-////            fprintf(stderr,"%s","server receiver thread created succesfully\n");
-//                        }
+                        //a slot was found for the connection and inserted into array so no need to check for more slots
                         break;
                     }
+                }else{
+                    continue;
                 }
             }
         }
     } else {
-//        fprintf(stderr,"%s","server: bind failure");
-        close(socketServer);
+        if(cmdOps.option_v){
+            fprintf(stderr,"socket binding failure\n");
+        }
+        if(close(socketServer) < 0){
+            fprintf(stderr,"socket closing failure\n");
+        }
+        exit(0);
     }
+    close(socketServer);
 }
 
 
@@ -393,22 +432,37 @@ int main(int argc, char **argv) {
   // This is the main program for the thread version of nc
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
-  fprintf(stderr,"dash r option:%d", cmdOps.option_r);
-  if(cmdOps.option_r == 1){
-      dashROption = 1;
+  //for debugging purposes let user know what options they have specified that  are properly parsed
+  if(cmdOps.option_v == 0) {
+      fprintf(stderr, "option-k:%d\n", cmdOps.option_k);
+      fprintf(stderr, "option-l:%d\n", cmdOps.option_l);
+      fprintf(stderr, "option-v:%d\n", cmdOps.option_v);
+      fprintf(stderr, "option-r:%d\n", cmdOps.option_r);
+      fprintf(stderr, "option-p:%d\n", cmdOps.option_p);
+      fprintf(stderr, "option-source port:%d\n", cmdOps.source_port);
+      fprintf(stderr, "co-timeout:%d\n", cmdOps.timeout);
+      fprintf(stderr, "option-hostname:%s\n", cmdOps.hostname);
+      fprintf(stderr, "option-port:%d\n", cmdOps.port);
   }
-
+  //run program only if parsing was done properly and no options contradict one another
+  if(retVal != PARSE_OK){
+        fprintf(stderr,"parsing error\n");
+        exit(0);
+  }
+  dashROption = cmdOps.option_r;
+  dashKOption = cmdOps.option_k;
+  //option l means to run as server or else run as client
   if(cmdOps.option_l == 1){
-      if(cmdOps.port != (unsigned  int)0){
-          fprintf(stderr,"port given\n");
-          actAsServer(cmdOps.port, cmdOps);
-      }else{
-          fprintf(stderr,"port not given\n");
-          actAsServer(0, cmdOps);
+      if(cmdOps.option_v){
+          fprintf(stderr,"acting as server\n");
       }
+      actAsServer(cmdOps);
+  }else {
+      if(cmdOps.option_v){
+          fprintf(stderr,"acting as client\n");
+      }
+      actAsClient(cmdOps);
   }
-
-  actAsClient(cmdOps);
 
   printf("Command parse outcome %d\n", retVal);
 

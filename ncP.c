@@ -16,12 +16,13 @@
 #include <netdb.h>
 #include <poll.h>
 
-struct pollfd pfds[12];
-int number_fd = 10;
-int fd_count = 0;
-char buff[1024];
-bool dashRoption;
-bool closeAllConnections;
+struct pollfd pfds[12]; //aray of pollfds server is to handle, with 2 of them including stdin and server's socket
+int number_fd = 10; //total number of fds excluding stdin and server's socket;
+int fd_count = 0; //current number of fd count
+char buff[1024]; //array with which we recv
+bool dashRoption; //flag to check if -r is set
+int dashKoption; //determines if server should close or not after conections goes to 0
+bool closeAllConnections; //flag to check if there are remaining clients connected to the server
 
 int sendall(int s, char *buf, int *len)
 {
@@ -30,7 +31,7 @@ int sendall(int s, char *buf, int *len)
     int n;
 
     while(total < *len) {
-        n = send(s, buf+total, bytesleft, 0);
+        n = write(s, buf+total, bytesleft);
         if (n == -1) { break; }
         total += n;
         bytesleft -= n;
@@ -41,37 +42,48 @@ int sendall(int s, char *buf, int *len)
     return n==-1?-1:0; // return -1 on failure, 0 on success
 }
 
+//if stdin is polled read from stdin and send message to all connected clients
 void reader(){
-    char line[1024];
-    memset(&line,0, sizeof line);
-    int len = sizeof line;
-    char c;
-    while(fgets(line, 1024, stdin) != NULL){
+
+    char ch[1024];
+    memset(&ch, 0, sizeof ch);
+
+    //keep reading on stdin
+    while(read(0, &ch, sizeof(ch)) > 0){
+        fprintf(stderr,"reading");
+        int len = strlen(ch);
+        //don't need to send to stdin or server socket
         for (int i = 2; i < 12; i++) {
             if (pfds[i].fd != -1) {
-                if (send(pfds[i].fd, line, len, 0) == -1) {
-                } else {
+                fprintf(stderr,"found one not -1");
+                if (sendall(pfds[i].fd, ch,&len) == -1) {
+                    fprintf(stderr,"stdin read error\n");
                 }
             }
         }
-
-        int linelength = strlen(line);
-        if(linelength > 0 && line[linelength-1] == '\n'){
+        if(ch[len] == '\0'){
             break;
         }
-
-        memset(&line,0, sizeof line);
+        memset(&ch, 0, sizeof ch);
     }
     fprintf(stderr,"out of while loop\n");
 }
 
 void actAsClient(struct commandOptions cmdOps){
+    //socket of the client
     int socketClient;
     socketClient = socket(AF_INET, SOCK_STREAM, 0);
+    //sockaddr_in of the client itself in case source port needs to be set
     struct sockaddr_in cli_addr;
+    //sockaddr_in of the server that client is to connect to
     struct sockaddr_in remote_addr;
+
+    //check if creation of socket was succesful or not
     if (socketClient == -1) {
         fprintf(stderr, "%s", "socket creation failed...\n");
+        if(close(socketClient) < 0){
+            fprintf(stderr,"closing socket failure\n");
+        }
     }else{
         fprintf(stderr, "%s", "Socket successfully created..\n");
     }
@@ -83,34 +95,58 @@ void actAsClient(struct commandOptions cmdOps){
     cli_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     remote_addr.sin_family = AF_INET;
 
-    if(cmdOps.hostname){
+    if(cmdOps.hostname != NULL){
         fprintf(stderr,"provided remote hostname\n");
         struct hostent * hostnm = gethostbyname(cmdOps.hostname);
-        // inet_ntoa(*(long*)host->h_addr_list[0]));
         remote_addr.sin_addr.s_addr =  *(long*)hostnm->h_addr_list[0];
     }else{
-        fprintf(stderr,"please provide hostname");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "please provide hostname\n");
+        }
+        close(socketClient);
+        exit(0);
     }
+    //check if the client has provided a port of the server it wishes to connect to
+    //client must provide a server port that it wishes to connect to
     if(cmdOps.port != 0){
+        if(cmdOps.port < 1023 || cmdOps.port > 65535){
+            fprintf(stderr,"invalid port: reserved \n");
+            exit(1);
+        }
         fprintf(stderr,"provided remote port\n");
         remote_addr.sin_port = htons(cmdOps.port);
-    }else{
+    }else if(cmdOps.port == 0){
         fprintf(stderr,"missing remote port\n");
+        if(close(socketClient) < 0){
+            fprintf(stderr,"closing socket failure\n");
+        }
+        exit(1);
     }
 
-    if(cmdOps.option_p != 0){
-        fprintf(stderr,"source port provided\n");
+    //if client provided source port it wishes to bind its socket with otherwise no need to bind
+    if(cmdOps.option_p != 0) {
+        if(cmdOps.source_port < 1023 || cmdOps.source_port > 65535){
+            if(cmdOps.option_v) {
+                fprintf(stderr, "error: reserved ports used for source port\n");
+            }
+            exit(1);
+        }
+        fprintf(stderr, "source port provided\n");
         cli_addr.sin_port = htons(cmdOps.source_port);
+        if (bind(socketClient, (struct sockaddr *) &cli_addr, sizeof(cli_addr) == 0)) {
+            fprintf(stderr, "%s", "Binded Correctly\n");
+        } else {
+            if(cmdOps.option_v) {
+                fprintf(stderr, "%s", "Unable to bind\n");
+            }
+            if(close(socketClient) < 0){
+                fprintf(stderr,"closing socket failure\n");
+            }
+            exit(0);
+        }
     }
-
-    if (bind(socketClient, (struct sockaddr*) &cli_addr, sizeof(cli_addr) == 0)) {
-        fprintf(stderr, "%s", "Binded Correctly\n");
-    }else {
-        fprintf(stderr, "%s", "Unable to bind\n");
-    }
-
+    //connect client to server
     if(connect(socketClient, (struct sockaddr * ) &remote_addr, sizeof(remote_addr)) != -1){
-        fprintf(stderr,"succesfully connected\n");
         struct pollfd clientPfds[2];
         int clientfd_count;
         clientPfds[0].fd = 0;
@@ -121,11 +157,11 @@ void actAsClient(struct commandOptions cmdOps){
         int poll_count;
         while(1) {
             if(cmdOps.timeout != 0){
-                poll_count = poll(clientPfds, clientfd_count, cmdOps.timeout);
-                fprintf(stderr,"provided time\n");
+                fprintf(stderr,"again with timeout limit\n");
+                poll_count = poll(clientPfds, clientfd_count, cmdOps.timeout*1000);
             }else{
+                fprintf(stderr,"again with no timeout limit\n");
                 poll_count = poll(clientPfds, clientfd_count, -1);
-                fprintf(stderr,"didn't provided time\n");
             }
             if (poll_count == -1) {
                 fprintf(stderr, "poll count is -1");
@@ -135,39 +171,59 @@ void actAsClient(struct commandOptions cmdOps){
                 close(socketClient);
                 exit(0);
             } else {
+                //if stdin got polled
                 if (clientPfds[0].revents & POLLIN) {
-                    fprintf(stderr,"fsdfsdf");
-                    char buf[100];
-                    memset(&buf[0], 0, sizeof(buf));
-                    fprintf(stderr, "%s", "Enter a message: \n");
+                    char ch[1024];
+                    memset(ch, 0, sizeof ch);
 
-                    while (fgets(buf, sizeof(buf), stdin) != NULL) {
-                        int length = strlen(buf);
-                        while (length > 0) {
-                            int i = send(socketClient, buf, length, 0);
-                            length -= i;
-                            buf[i] = '\0';
-                            printf("client: sent %s", buf);
+                    //keep reading on stdin
+                    while(read(0, &ch, sizeof(ch)) > 0)
+                    {
+                        int len = strlen(ch);
+                        //send stdin message to server
+                        if (sendall(socketClient, ch,&len) == -1) {
+                            fprintf(stderr,"stdin read error\n");
                         }
-                        break;
-                        memset(&buf[0], 0, sizeof(buf));
+                        if(ch[len-1] == '\n'){
+                            fprintf(stderr,"last char is enter");
+                            break;
+                        }
+                        memset(ch, 0, sizeof ch);
                     }
+                    //if socket is polled, meaning client received message from server
                 } else if (clientPfds[1].revents & POLLIN) {
-                    fprintf(stderr,"got message");
-                    memset(&buff,0, sizeof(buff));
-                    int nbytes = recv(clientPfds[1].fd, buff, sizeof buff, 0);
-                    fprintf(stderr, buff);
-                    memset(&buff,0, sizeof(buff));
+                    char ch[1024];
+                    memset(&ch, 0, sizeof ch);
+                    int n = recv(clientPfds[1].fd, ch, sizeof(ch), 0);
+                    if(n == 0){
+                        fprintf(stderr,"server disconnection\n");
+                        exit(0);
+                    } else if(n == -1){
+                        fprintf(stderr,"error\n");
+                        continue;
+                    }else if(n > 0) {
+                        fprintf(stderr,"got smt\n");
+                        int len = strlen(ch);
+                        if (write(1, ch, len) < 0) {
+                            fprintf(stderr, "write to stdout error\n");
+                        }
+                        memset(&ch, 0, sizeof ch);
+                    }
                 }
             }
         }
     }else{
-        fprintf(stderr,"connection failure\n");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "connection error\n");
+        }
+        if(close(socketClient) < 0){
+            fprintf(stderr,"closing socket failure\n");
+        }
+        exit(0);
     }
-    fprintf(stderr,"outside\n");
 }
 
-void actAsServer(unsigned int port, struct commandOptions cmdOps){
+void actAsServer(struct commandOptions cmdOps){
     int socketServer;
     int numofConnections = 0;
     struct sockaddr_in serverAddr;
@@ -179,77 +235,105 @@ void actAsServer(unsigned int port, struct commandOptions cmdOps){
     memset(&pfds, 0, sizeof pfds);
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-    if(port != 0) {
-        fprintf(stderr,"port given: %d",port);
-        serverAddr.sin_port = htons((int)port);
-    }
-    if(cmdOps.option_r == 1){
-        numofConnections = 12;
-    }else{
-        numofConnections = 3;
+    if(cmdOps.port != 0) {
+        if(cmdOps.port < 1023 || cmdOps.port > 65535){
+            fprintf(stderr,"invalid: reserved ports\n");
+            exit(1);
+        }
+        fprintf(stderr,"port given: %d",cmdOps.port);
+        serverAddr.sin_port = htons((int)cmdOps.port);
+    }else if(cmdOps.port == 0){
+        fprintf(stderr,"provide port for server\n");
+        exit(1);
     }
 
+    if(cmdOps.option_r == 1){
+        //10 connections plus stdin and socket of the server
+        numofConnections = 12;
+    }else{
+        //1 connection plus stdin and socket of the server
+        numofConnections = 3;
+    }
+    fprintf(stderr,"number of connections:%d\n", numofConnections);
 
     //if binding port with the socket is successful
     if(bind(socketServer, (struct sockaddr *) &serverAddr, sizeof(serverAddr)) != -1){
-        fprintf(stderr,"%s", "succesfully binded\n");
 
-        //list of connections
+        //list for connections with 20 in backlog queue(random decision could be any number)
         listen(socketServer,20);
-
+        //adding stdin and socket to our array of pfds
         pfds[0].fd = socketServer;
         pfds[0].events = POLLIN;
         pfds[1].fd = STDIN_FILENO;
         pfds[1].events = POLLIN;
+
+        //initializing clients to have fd of -1 so they dont get polled since no connections yet
         for(int i= 2; i< 12; i++){
             pfds[i].fd = -1;
         }
+        //fds so far, stdin and socket since no connection has been accepted
         fd_count = 2;
 
+        //keep polling for incoming connections, or if server wrote something to broadcast
         while(1) {
-            if(closeAllConnections){
-                exit(0);
-            }
+           fprintf(stderr,"before poll count\n");
+           fprintf(stderr,"fd_count:%d\n", fd_count);
+           fprintf(stderr,"pfds[2].fd:%d\n",pfds[2].fd);
+           fprintf(stderr,"pfds[3].fd:%d\n",pfds[3].fd);
             int poll_count = poll(pfds, fd_count, -1);
-            if(closeAllConnections){
-                exit(0);
-            }
-            fprintf(stderr, "after poll count");
+           fprintf(stderr, "after poll count");
             int connectSocket;
             struct addrinfo clientAddr;
             socklen_t addr_size = sizeof clientAddr;
 
             if (poll_count == -1) {
                 fprintf(stderr, "poll count is -1");
+                if(close(socketServer)<0){
+                    fprintf(stderr,"closing socket failure\n");
+                }
+                fprintf(stderr,"exiting from here\n");
                 exit(1);
             } else if (poll_count == 0) {
                 fprintf(stderr, "timeout occured");
+                if(close(socketServer)<0){
+                    fprintf(stderr,"closing socket failure\n");
+                }
+                exit(0);
             } else {
+                fprintf(stderr,"boom\n");
+                //check if fd triggered a poll event
                 for (int i = 0; i < 12; i++) {
-                    if (pfds[i].fd == -1) {
-                        fprintf(stderr, "continue most top\n");
-                        continue;
-                    }
+                    //there is no connection of this fd yet
+//                    if (pfds[i].fd == -1) {
+//                        fprintf(stderr, "continue most top\n");
+//
+//                    }
+                    //check if this connection or stdin caused the poll event
                     if (pfds[i].revents & POLLIN) {
-                        fprintf(stderr, "poll in happened\n");
+                        //if poll event was caused by stdin, server wanting to broadcast
                         if (pfds[i].fd == STDIN_FILENO) {
+                            fprintf(stderr,"stdin got polled\n");
                             reader();
+                            fprintf(stderr,"back from reader\n");
+                            //if poll event caused by the server socket, a client wishing to connect
                         } else if (pfds[i].fd == socketServer) {
-                            fprintf(stderr, "socket server got polled\n");
-                            if (fd_count < 13) {
+                            fprintf(stderr,"socketserver polled\n");
+                            if (fd_count < numofConnections) {
                                 fprintf(stderr, "stuck waiting for conneciton 1\n");
                                 connectSocket = accept(socketServer, (struct sockaddr *) &clientAddr, &addr_size);
                                 fprintf(stderr, "stuck waiting for connection 2\n");
                                 fprintf(stderr,"connetion socket:%d\n", connectSocket);
                                 if (connectSocket != -1) {
-                                    fprintf(stderr,"connection socket is not -1");
-                                    for (int j = 2; j < numofConnections; j++) {
-                                        fprintf(stderr,"pfds j is: %d\n",pfds[j].fd);
+                                    for (int j = 0; j < 12; j++) {
                                         if (pfds[j].fd < 0) {
+                                            fprintf(stderr,"i is:%d\n",i);
+                                            fprintf(stderr,"j is:%d\n",j);
                                             fprintf(stderr, "adding connection:%d\n", j);
+                                            fd_count = fd_count +1;
+                                            fprintf(stderr,"fd_count after add:%d\n",fd_count);
                                             pfds[j].fd = connectSocket;
+                                            fprintf(stderr,"connection scoket:%d\n",connectSocket);
                                             pfds[j].events = POLLIN;
-                                            fd_count++;
                                             break;
                                         }
                                     }
@@ -257,37 +341,48 @@ void actAsServer(unsigned int port, struct commandOptions cmdOps){
                                 }
                             }
                         } else {
-                            fprintf(stderr, "pfd[%d] has data to send\n", i);
+                            fprintf(stderr,"else poll\n");
+                            //a client sent a message, server must retransmit to all other clients
                             int nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
+                            fprintf(stderr,"pfds[i].fd: %d", pfds[i].fd);
+                            fprintf(stderr,"i");
                             int sender_fd = pfds[i].fd;
+                            //a client has disconnected, server must decrement fd count and set original client fd
+                            //to -1 to free up space for other clients to connect
                             if (nbytes == 0) {
                                 fprintf(stderr, "client:%d, disconnected\n",i);
                                 pfds[i].fd = -1;
-                                fd_count--;
-                                if(dashRoption){
+                                fd_count = fd_count-1;
+                                fprintf(stderr,"fd count after disconnection:%d\n", fd_count);
+                                if(dashKoption == 0){
                                     if(fd_count == 2){
-                                        fprintf(stderr,"all clients disconnected, closing socket \n");
                                         pfds[0].fd = -1;
                                         pfds[1].fd = -1;
-                                        closeAllConnections = TRUE;
+                                        fprintf(stderr,"exiting from close\n");
                                         close(socketServer);
-                                        break;
+                                        exit(0);
                                     }
-                                } else {
-                                    continue;
                                 }
-                            } else {
-                                fprintf(stderr,"this is input %s",buff);
+                            } else if(nbytes > 0) {
+                                //retransmit client's message to all other connected clients and write to server's
+                                //stdout
+                                fprintf(stderr,"nbytes greater than 0\n");
+                                int len = strlen(buff);
+                                write(2,buff,len);
                                 for (int z = 2; z < 12; z++) {
-                                    fprintf(stderr, "trying to send to others\n");
                                     if (pfds[z].fd != -1 && pfds[z].fd != sender_fd) {
-                                        if (send(pfds[z].fd, buff, nbytes, 0) == -1) {
+                                        fprintf(stderr,"found 1");
+                                        if (sendall(pfds[z].fd, buff, &len) == -1) {
                                             fprintf(stderr, "send failure\n");
                                         } else {
                                             fprintf(stderr, "send success\n");
                                         }
                                     }
                                 }
+                                fprintf(stderr,"after write\n");
+                                memset(&buff[0],0, sizeof(buff));
+                            }else{
+                                fprintf(stderr,"here\n");
                             }
                         }
                     }
@@ -295,8 +390,13 @@ void actAsServer(unsigned int port, struct commandOptions cmdOps){
             }
         }
     }else{
-        fprintf(stderr,"%s","server: bind failure\n");
-        close(socketServer);
+        fprintf(stderr,"else case\n");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "server: bind failure\n");
+        }
+        if(close(socketServer)< 0){
+            fprintf(stderr,"closing  socket error\n");
+        }
     }
 }
 
@@ -307,12 +407,34 @@ int main(int argc, char **argv) {
   
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
+  if(cmdOps.option_v) {
+      fprintf(stderr, "option-k:%d\n", cmdOps.option_k);
+      fprintf(stderr, "option-l:%d\n", cmdOps.option_l);
+      fprintf(stderr, "option-v:%d\n", cmdOps.option_v);
+      fprintf(stderr, "option-r:%d\n", cmdOps.option_r);
+      fprintf(stderr, "option-p:%d\n", cmdOps.option_p);
+      fprintf(stderr, "option-source port:%d\n", cmdOps.source_port);
+      fprintf(stderr, "co-timeout:%d\n", cmdOps.timeout);
+      fprintf(stderr, "option-hostname:%d\n", cmdOps.hostname);
+      fprintf(stderr, "option-port:%d\n", cmdOps.port);
+  }
   dashRoption = cmdOps.option_r;
+  dashKoption = cmdOps.option_k;
+    //run program only if parsing was done properly and no options contradict one another
+  if(retVal != PARSE_OK){
+        fprintf(stderr,"parsing error\n");
+        exit(0);
+  }
+    //option l means to run as server or else run as client
   if(cmdOps.option_l == 1){
-      fprintf(stderr,"acting as server");
-      actAsServer(cmdOps.port, cmdOps);
-  }else{
-      fprintf(stderr,"acting as client\n");
+      if(cmdOps.option_v) {
+          fprintf(stderr, "acting as server");
+      }
+      actAsServer(cmdOps);
+  } else {
+      if(cmdOps.option_v) {
+          fprintf(stderr, "acting as client\n");
+      }
       actAsClient(cmdOps);
   }
   printf("Command parse outcome %d\n", retVal);
