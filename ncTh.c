@@ -461,7 +461,6 @@ int main(int argc, char **argv) {
       if(cmdOps.option_v){
           fprintf(stderr,"acting as server\n");
       }
-      sem_init(&mutex, 0, 10);
       actAsServer(cmdOps);
       exit(0);
   }else {
