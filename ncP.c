@@ -49,9 +49,9 @@ void reader(){
 
     char ch[1024];
     memset(&ch, 0, sizeof ch);
-ioifterituertuerituerituieriutieutier
+    int n;
     //keep reading on stdin
-    while(read(0, &ch, sizeof(ch)) > 0){
+    while((n =read(0, &ch, sizeof(ch))) > 0){
         fprintf(stderr,"reading");
         int len = strlen(ch);
         //don't need to send to stdin or server socket
@@ -63,10 +63,10 @@ ioifterituertuerituerituieriutieutier
                 }
             }
         }
-        if(ch[len] == '\0'){
+        memset(&ch, 0, sizeof ch);
+        if(n < 1024){
             break;
         }
-        memset(&ch, 0, sizeof ch);
     }
     fprintf(stderr,"out of while loop\n");
 }
@@ -158,10 +158,10 @@ void actAsClient(struct commandOptions cmdOps){
         int poll_count;
         while(1) {
             if(cmdOps.timeout != 0){
-                fprintf(stderr,"again with timeout limit\n");
+//                fprintf(stderr,"again with timeout limit\n");
                 poll_count = poll(clientPfds, clientfd_count, cmdOps.timeout*1000);
             }else{
-                fprintf(stderr,"again with no timeout limit\n");
+//                fprintf(stderr,"again with no timeout limit\n");
                 poll_count = poll(clientPfds, clientfd_count, -1);
             }
             if (poll_count == -1) {
@@ -176,21 +176,27 @@ void actAsClient(struct commandOptions cmdOps){
                 if (clientPfds[0].revents & POLLIN) {
                     char ch[1024];
                     memset(ch, 0, sizeof ch);
-
-                    //keep reading on stdin
-                    while(read(0, &ch, sizeof(ch)) > 0)
-                    {
-                        int len = strlen(ch);
-                        //send stdin message to server
-                        if (sendall(socketClient, ch,&len) == -1) {
-                            fprintf(stderr,"stdin read error\n");
-                        }
-                        if(ch[len-1] == '\n'){
-                            fprintf(stderr,"last char is enter");
-                            break;
-                        }
-                        memset(ch, 0, sizeof ch);
+                    if(read(0, &ch, sizeof(ch)) == EOF){
+                        exit(0);
                     }
+                    int len = strlen(ch);
+                    if (sendall(socketClient, ch,&len) == -1) {
+                            fprintf(stderr,"stdin read error\n");
+                    }
+                    //keep reading on stdin
+//                    while((n =read(0, &ch, sizeof(ch))) > 0)
+//                    {
+//                        int len = strlen(ch);
+//                        //send stdin message to server
+//                        if (sendall(socketClient, ch,&len) == -1) {
+//                            fprintf(stderr,"stdin read error\n");
+//                        }
+//                        memset(ch, 0, sizeof ch);
+//                        if(n < 1024){
+//                            fprintf(stderr,"last char is enter");
+//                            break;
+//                        }
+//                    }
                     //if socket is polled, meaning client received message from server
                 } else if (clientPfds[1].revents & POLLIN) {
                     char ch[1024];
