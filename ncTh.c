@@ -30,6 +30,7 @@
 
 //for server only array of 10 connection structs with each elem containing fd, and inUse boolean
 struct connection connections[10];
+int currentConnections = 0;
 pthread_t threads[10]; //array of threads for each connection in server
 pthread_t clientRevThread; //thread in client to receive message from server it's connected to
 pthread_t timerThread; //thread to keep track of timeout
@@ -182,13 +183,12 @@ void actAsClient(struct commandOptions cmdOps){
                 } else {
                     fprintf(stderr,"send succes\n");
                 }
-                if(ch[len-1] == '\n'){
+                if(ch[len-1] == '\0'){
                     break;
                 }
                 memset(&ch,0, sizeof ch);
             }
         }
-        close(socketClient);
 }
 
 //helper to avoid partial sends, make sure we send all the input
@@ -296,7 +296,7 @@ void* threadHandler(void* socket){
                 //not send the same message back to the client that sent the message
                 if (connections[i].inUse == TRUE && connections[i].socketFD != fd) {
                     if (sendall(connections[i].socketFD, buff, &len) == -1) {
-//                        fprintf(stderr,"sendall failed\n");
+                        fprintf(stderr,"sendall failed\n");
                     } else {
                         fprintf(stderr,"sendall success\n");
                     }
@@ -309,6 +309,7 @@ void* threadHandler(void* socket){
     for(int i = 0 ; i < 10 ; i++){
         if(connections[i].socketFD == fd){
             connections[i].inUse = FALSE;
+            currentConnections--;
             //kill thread since it's no longer connected to the server
             pthread_cancel(threads[i]);
             break;
@@ -379,6 +380,7 @@ void actAsServer(struct commandOptions cmdOps){
 
         //keep looping to accept more incoming connections
         while(1){
+
             struct addrinfo clientAddress;
             //fd of the client, to be overwritten for every new client
             int connectionFD;
@@ -387,6 +389,7 @@ void actAsServer(struct commandOptions cmdOps){
             //loop over connections array to find if we have a slot to accept the incoming connection
             for(int i = 0; i < numConnections ; i++){
                 if(connections[i].inUse == FALSE){
+                    fprintf(stderr,"waiting for a connection\n");
                     //accept the connection and set the fd of the client
                     connectionFD = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
                     if(connectionFD == -1) {
@@ -398,6 +401,7 @@ void actAsServer(struct commandOptions cmdOps){
                     fprintf(stderr,"accpeted a connection\n");
                     //create thread for each incoming connection
                     if(pthread_create(&threads[i], NULL, threadHandler, &connectionFD) < 0){
+                        sem_post(&semaphore);
                         fprintf(stderr,"%s","thread creation error\n");
                     } else {
                         fprintf(stderr,"connection: %d\n", i);
@@ -405,6 +409,7 @@ void actAsServer(struct commandOptions cmdOps){
                         fprintf(stderr,"connection %d inUse %d\n", i, connections[i].inUse);
                         connections[i].socketFD = connectionFD;
                         hasAcceptedAtLeastOneClient = 1;
+                        currentConnections++;
                         //a slot was found for the connection and inserted into array so no need to check for more slots
                         break;
                     }
@@ -456,12 +461,15 @@ int main(int argc, char **argv) {
       if(cmdOps.option_v){
           fprintf(stderr,"acting as server\n");
       }
+      sem_init(&mutex, 0, 10);
       actAsServer(cmdOps);
+      exit(0);
   }else {
       if(cmdOps.option_v){
           fprintf(stderr,"acting as client\n");
       }
       actAsClient(cmdOps);
+      exit(0);
   }
 
   printf("Command parse outcome %d\n", retVal);
@@ -475,7 +483,7 @@ int main(int argc, char **argv) {
   printf("Timeout value = %d\n", cmdOps.timeout);
   printf("Host to connect to = %s\n", cmdOps.hostname);
   printf("Port to connect to = %d\n", cmdOps.port);
-
+  exit(0);
 }
 
 

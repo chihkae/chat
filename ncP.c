@@ -23,6 +23,8 @@ char buff[1024]; //array with which we recv
 bool dashRoption; //flag to check if -r is set
 int dashKoption; //determines if server should close or not after conections goes to 0
 bool closeAllConnections; //flag to check if there are remaining clients connected to the server
+int hasAcceptedAtleastOne = 0;
+int currentConnections = 0;
 
 int sendall(int s, char *buf, int *len)
 {
@@ -47,7 +49,7 @@ void reader(){
 
     char ch[1024];
     memset(&ch, 0, sizeof ch);
-
+ioifterituertuerituerituieriutieutier
     //keep reading on stdin
     while(read(0, &ch, sizeof(ch)) > 0){
         fprintf(stderr,"reading");
@@ -74,9 +76,7 @@ void actAsClient(struct commandOptions cmdOps){
     int socketClient;
     socketClient = socket(AF_INET, SOCK_STREAM, 0);
     //sockaddr_in of the client itself in case source port needs to be set
-    struct sockaddr_in cli_addr;
-    //sockaddr_in of the server that client is to connect to
-    struct sockaddr_in remote_addr;
+    struct sockaddr_in cli_addr, remote_addr;
 
     //check if creation of socket was succesful or not
     if (socketClient == -1) {
@@ -91,8 +91,6 @@ void actAsClient(struct commandOptions cmdOps){
     memset(&cli_addr, 0, sizeof cli_addr);
     memset(&remote_addr, 0, sizeof remote_addr);
 
-    cli_addr.sin_family = AF_INET;
-    cli_addr.sin_addr.s_addr = htonl(INADDR_ANY);
     remote_addr.sin_family = AF_INET;
 
     if(cmdOps.hostname != NULL){
@@ -132,8 +130,11 @@ void actAsClient(struct commandOptions cmdOps){
             exit(1);
         }
         fprintf(stderr, "source port provided\n");
+        cli_addr.sin_family = AF_INET;
+        cli_addr.sin_addr.s_addr = INADDR_ANY;
+        fprintf(stderr,"cmdsourceports:%d",cmdOps.source_port);
         cli_addr.sin_port = htons(cmdOps.source_port);
-        if (bind(socketClient, (struct sockaddr *) &cli_addr, sizeof(cli_addr) == 0)) {
+        if (bind(socketClient, (struct sockaddr *) &cli_addr, sizeof(cli_addr)) == 0) {
             fprintf(stderr, "%s", "Binded Correctly\n");
         } else {
             if(cmdOps.option_v) {
@@ -222,17 +223,39 @@ void actAsClient(struct commandOptions cmdOps){
         exit(0);
     }
 }
+// get port, IPv4 or IPv6:
+in_port_t get_in_port(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return (((struct sockaddr_in*)sa)->sin_port);
+    }
+
+    return (((struct sockaddr_in6*)sa)->sin6_port);
+}
+
+// get sockaddr, IPv4 or IPv6:
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
 
 void actAsServer(struct commandOptions cmdOps){
     int socketServer;
     int numofConnections = 0;
     struct sockaddr_in serverAddr;
     socklen_t serverAsClientaddr_size = sizeof serverAddr;
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    char s[INET6_ADDRSTRLEN];
     //creating the socket
     socketServer = socket(AF_INET, SOCK_STREAM, 0);
     //setting properties of teh serverAddr
     memset(&serverAddr, 0, sizeof serverAddr);
-    memset(&pfds, 0, sizeof pfds);
+//    memset(&pfds, 0, sizeof pfds);
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if(cmdOps.port != 0) {
@@ -252,7 +275,7 @@ void actAsServer(struct commandOptions cmdOps){
         numofConnections = 12;
     }else{
         //1 connection plus stdin and socket of the server
-        numofConnections = 3;
+        numofConnections = 1;
     }
     fprintf(stderr,"number of connections:%d\n", numofConnections);
 
@@ -272,16 +295,16 @@ void actAsServer(struct commandOptions cmdOps){
             pfds[i].fd = -1;
         }
         //fds so far, stdin and socket since no connection has been accepted
-        fd_count = 2;
+        fd_count = 12;
 
         //keep polling for incoming connections, or if server wrote something to broadcast
         while(1) {
-           fprintf(stderr,"before poll count\n");
-           fprintf(stderr,"fd_count:%d\n", fd_count);
-           fprintf(stderr,"pfds[2].fd:%d\n",pfds[2].fd);
-           fprintf(stderr,"pfds[3].fd:%d\n",pfds[3].fd);
-            int poll_count = poll(pfds, fd_count, -1);
-           fprintf(stderr, "after poll count");
+//           fprintf(stderr,"before poll count\n");
+//          fprintf(stderr,"fd_count:%d\n", fd_count);
+//           fprintf(stderr,"pfds[2].fd:%d\n",pfds[2].fd);
+//           fprintf(stderr,"pfds[3].fd:%d\n",pfds[3].fd);
+            int poll_count = poll(pfds,fd_count, -1);
+//           fprintf(stderr, "after poll count");
             int connectSocket;
             struct addrinfo clientAddr;
             socklen_t addr_size = sizeof clientAddr;
@@ -300,14 +323,13 @@ void actAsServer(struct commandOptions cmdOps){
                 }
                 exit(0);
             } else {
-                fprintf(stderr,"boom\n");
+//                fprintf(stderr,"boom\n");
                 //check if fd triggered a poll event
                 for (int i = 0; i < 12; i++) {
                     //there is no connection of this fd yet
-//                    if (pfds[i].fd == -1) {
-//                        fprintf(stderr, "continue most top\n");
-//
-//                    }
+                    if (pfds[i].fd == -1) {
+                        continue;
+                    }
                     //check if this connection or stdin caused the poll event
                     if (pfds[i].revents & POLLIN) {
                         //if poll event was caused by stdin, server wanting to broadcast
@@ -317,45 +339,51 @@ void actAsServer(struct commandOptions cmdOps){
                             fprintf(stderr,"back from reader\n");
                             //if poll event caused by the server socket, a client wishing to connect
                         } else if (pfds[i].fd == socketServer) {
-                            fprintf(stderr,"socketserver polled\n");
-                            if (fd_count < numofConnections) {
+//                            fprintf(stderr,"socketserver polled\n");
+                            if (currentConnections < numofConnections) {
                                 fprintf(stderr, "stuck waiting for conneciton 1\n");
-                                connectSocket = accept(socketServer, (struct sockaddr *) &clientAddr, &addr_size);
+                                sin_size = sizeof their_addr;
+                                connectSocket = accept(socketServer, (struct sockaddr *)&their_addr, &sin_size);
                                 fprintf(stderr, "stuck waiting for connection 2\n");
                                 fprintf(stderr,"connetion socket:%d\n", connectSocket);
                                 if (connectSocket != -1) {
-                                    for (int j = 0; j < 12; j++) {
+                                    for (int j = 2; j < 12; j++) {
                                         if (pfds[j].fd < 0) {
                                             fprintf(stderr,"i is:%d\n",i);
                                             fprintf(stderr,"j is:%d\n",j);
-                                            fprintf(stderr, "adding connection:%d\n", j);
-                                            fd_count = fd_count +1;
-                                            fprintf(stderr,"fd_count after add:%d\n",fd_count);
+                                            inet_ntop(their_addr.ss_family,
+                                                      get_in_addr((struct sockaddr *)&their_addr),
+                                                      s, sizeof s);
+                                            fprintf(stderr,"server: got connection from %s\n", s);
+                                            fprintf(stderr,"port is %d\n",ntohs(get_in_port((struct sockaddr *)&their_addr)));
+//                                            fprintf(stderr, "ip address:%d\n", getnetent(socketServer));
+//                                            fprintf(stderr,"port number:%d\n", getopt(socketServer,NULL,NULL));
                                             pfds[j].fd = connectSocket;
                                             fprintf(stderr,"connection scoket:%d\n",connectSocket);
                                             pfds[j].events = POLLIN;
+                                            fprintf(stderr,"fd_count after add:%d\n",fd_count);
+                                            currentConnections++;
                                             break;
                                         }
                                     }
+                                    hasAcceptedAtleastOne =1;
                                     fprintf(stderr,"finished adding\n");
+                                    continue;
                                 }
                             }
                         } else {
-                            fprintf(stderr,"else poll\n");
                             //a client sent a message, server must retransmit to all other clients
                             int nbytes = recv(pfds[i].fd, buff, sizeof buff, 0);
-                            fprintf(stderr,"pfds[i].fd: %d", pfds[i].fd);
-                            fprintf(stderr,"i");
                             int sender_fd = pfds[i].fd;
                             //a client has disconnected, server must decrement fd count and set original client fd
                             //to -1 to free up space for other clients to connect
                             if (nbytes == 0) {
                                 fprintf(stderr, "client:%d, disconnected\n",i);
                                 pfds[i].fd = -1;
-                                fd_count = fd_count-1;
-                                fprintf(stderr,"fd count after disconnection:%d\n", fd_count);
+                                currentConnections--;
+                                fprintf(stderr,"currentConnections after disconnection:%d\n", currentConnections);
                                 if(dashKoption == 0){
-                                    if(fd_count == 2){
+                                    if(currentConnections == 0){
                                         pfds[0].fd = -1;
                                         pfds[1].fd = -1;
                                         fprintf(stderr,"exiting from close\n");
@@ -366,9 +394,8 @@ void actAsServer(struct commandOptions cmdOps){
                             } else if(nbytes > 0) {
                                 //retransmit client's message to all other connected clients and write to server's
                                 //stdout
-                                fprintf(stderr,"nbytes greater than 0\n");
                                 int len = strlen(buff);
-                                write(2,buff,len);
+                                write(1,buff,len);
                                 for (int z = 2; z < 12; z++) {
                                     if (pfds[z].fd != -1 && pfds[z].fd != sender_fd) {
                                         fprintf(stderr,"found 1");
@@ -379,7 +406,6 @@ void actAsServer(struct commandOptions cmdOps){
                                         }
                                     }
                                 }
-                                fprintf(stderr,"after write\n");
                                 memset(&buff[0],0, sizeof(buff));
                             }else{
                                 fprintf(stderr,"here\n");
@@ -437,6 +463,7 @@ int main(int argc, char **argv) {
       }
       actAsClient(cmdOps);
   }
+  exit(0);
   printf("Command parse outcome %d\n", retVal);
 
   printf("-k = %d\n", cmdOps.option_k);
