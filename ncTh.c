@@ -169,26 +169,34 @@ void actAsClient(struct commandOptions cmdOps){
             }
         }
 
-        while(1) {
+//        while(1) {
             time2 = clock();
+            fprintf(stderr,"ran timer 1\n");
             char ch[1024];
             memset(&ch,0, sizeof ch);
-            while(read(0, &ch, 1) > 0)
+            int n;
+            while((n =read(0, &ch, sizeof(ch))) > 0)
             {
+                time2 = clock();
+                fprintf(stderr,"ran timer 2\n");
+                fprintf(stderr,"read:%d\n",n);
                 int len = strlen(ch);
                 if (sendall(socketClient, ch, &len) == -1) {
                     if(cmdOps.option_v) {
                         fprintf(stderr, "send failure\n");
                     }
+                    fprintf(stderr,"send failure\n");
+                    exit(0);
                 } else {
                     fprintf(stderr,"send succes\n");
                 }
-                if(ch[len-1] == '\0'){
-                    break;
-                }
                 memset(&ch,0, sizeof ch);
+                if(n < 1024){
+                    fprintf(stderr,"end of filessssssssssssssssss\n");
+                    continue;
+                }
             }
-        }
+//        }
 }
 
 //helper to avoid partial sends, make sure we send all the input
@@ -240,12 +248,14 @@ void* reader(void* socket){
                     }
                 }
             }
-            if(ch[len-1] == '\n'){
+            if(ch[len-1] == EOF){
+                fprintf(stderr,"end of file\n");
                 break;
             }
             memset(&ch, 0, sizeof ch);
         }
     }
+    exit(0);
 }
 //used for -k without -r to ckeck if the server should close when all clients exit
 void * closeServerUponAllConectionsLeft(void* socketServer){
@@ -385,7 +395,6 @@ void actAsServer(struct commandOptions cmdOps){
             //fd of the client, to be overwritten for every new client
             int connectionFD;
             socklen_t addr_size = sizeof clientAddress;
-
             //loop over connections array to find if we have a slot to accept the incoming connection
             for(int i = 0; i < numConnections ; i++){
                 if(connections[i].inUse == FALSE){
@@ -401,7 +410,6 @@ void actAsServer(struct commandOptions cmdOps){
                     fprintf(stderr,"accpeted a connection\n");
                     //create thread for each incoming connection
                     if(pthread_create(&threads[i], NULL, threadHandler, &connectionFD) < 0){
-                        sem_post(&semaphore);
                         fprintf(stderr,"%s","thread creation error\n");
                     } else {
                         fprintf(stderr,"connection: %d\n", i);
