@@ -51,7 +51,7 @@ void reader(){
     memset(&ch, 0, sizeof ch);
     int n;
     //keep reading on stdin
-    while((n =read(0, &ch, sizeof(ch))) > 0){
+    while((n =read(0, &ch, sizeof(ch)))){
         fprintf(stderr,"reading");
         int len = strlen(ch);
         //don't need to send to stdin or server socket
@@ -63,10 +63,11 @@ void reader(){
                 }
             }
         }
-        memset(&ch, 0, sizeof ch);
         if(n < 1024){
-            break;
+            fprintf(stderr,"n is 0\n");
+            return;
         }
+        memset(&ch, 0, sizeof ch);
     }
     fprintf(stderr,"out of while loop\n");
 }
@@ -122,7 +123,7 @@ void actAsClient(struct commandOptions cmdOps){
     }
 
     //if client provided source port it wishes to bind its socket with otherwise no need to bind
-    if(cmdOps.option_p != 0) {
+    if(cmdOps.option_p == 1) {
         if(cmdOps.source_port < 1023 || cmdOps.source_port > 65535){
             if(cmdOps.option_v) {
                 fprintf(stderr, "error: reserved ports used for source port\n");
@@ -176,28 +177,32 @@ void actAsClient(struct commandOptions cmdOps){
                 if (clientPfds[0].revents & POLLIN) {
                     char ch[1024];
                     memset(ch, 0, sizeof ch);
-                    if(read(0, &ch, sizeof(ch)) == EOF){
+//                    if(read(0, &ch, sizeof(ch)) == EOF){
+//                        exit(0);
+//                    }
+//                    int len = strlen(ch);
+//                    if (sendall(socketClient, ch,&len) == -1) {
+//                            fprintf(stderr,"stdin read error\n");
+//                    }
+                    int n;
+//                    keep reading on stdin
+                    while((n =read(0, &ch, sizeof(ch))) > 0)
+                    {
+                        int len = strlen(ch);
+                        //send stdin message to server
+                        if (sendall(socketClient, ch,&len) == -1) {
+                            fprintf(stderr,"stdin read error\n");
+                        }
+                        if(n < 1024){
+                            break;
+                        }
+                        memset(ch, 0, sizeof ch);
+                    }
+                    if(n == 0){
+                        fprintf(stderr,"last char is enter");
                         exit(0);
                     }
-                    int len = strlen(ch);
-                    if (sendall(socketClient, ch,&len) == -1) {
-                            fprintf(stderr,"stdin read error\n");
-                    }
-                    //keep reading on stdin
-//                    while((n =read(0, &ch, sizeof(ch))) > 0)
-//                    {
-//                        int len = strlen(ch);
-//                        //send stdin message to server
-//                        if (sendall(socketClient, ch,&len) == -1) {
-//                            fprintf(stderr,"stdin read error\n");
-//                        }
-//                        memset(ch, 0, sizeof ch);
-//                        if(n < 1024){
-//                            fprintf(stderr,"last char is enter");
-//                            break;
-//                        }
-//                    }
-                    //if socket is polled, meaning client received message from server
+//                    if socket is polled, meaning client received message from server
                 } else if (clientPfds[1].revents & POLLIN) {
                     char ch[1024];
                     memset(&ch, 0, sizeof ch);
@@ -355,13 +360,14 @@ void actAsServer(struct commandOptions cmdOps){
                                 if (connectSocket != -1) {
                                     for (int j = 2; j < 12; j++) {
                                         if (pfds[j].fd < 0) {
-                                            fprintf(stderr,"i is:%d\n",i);
-                                            fprintf(stderr,"j is:%d\n",j);
                                             inet_ntop(their_addr.ss_family,
                                                       get_in_addr((struct sockaddr *)&their_addr),
                                                       s, sizeof s);
-                                            fprintf(stderr,"server: got connection from %s\n", s);
-                                            fprintf(stderr,"port is %d\n",ntohs(get_in_port((struct sockaddr *)&their_addr)));
+                                            if(cmdOps.option_v == 1) {
+                                                fprintf(stderr, "server: got connection from %s\n", s);
+                                                fprintf(stderr, "port is %d\n",
+                                                        ntohs(get_in_port((struct sockaddr *) &their_addr)));
+                                            }
 //                                            fprintf(stderr, "ip address:%d\n", getnetent(socketServer));
 //                                            fprintf(stderr,"port number:%d\n", getopt(socketServer,NULL,NULL));
                                             pfds[j].fd = connectSocket;

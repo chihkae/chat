@@ -100,7 +100,6 @@ void* timer(void* socket){
 void actAsClient(struct commandOptions cmdOps){
         int socketClient;
         socketClient = socket(AF_INET, SOCK_STREAM, 0);
-        fprintf(stderr,"socketClient:%d\n",socketClient);
         struct sockaddr_in server_addr, client_addr;
         if (socketClient == -1) {
             if(cmdOps.option_v) {
@@ -137,62 +136,82 @@ void actAsClient(struct commandOptions cmdOps){
             client_addr.sin_family = AF_INET;
             client_addr.sin_addr.s_addr = INADDR_ANY;
             client_addr.sin_port = htons(cmdOps.source_port);
+            fprintf(stderr,"cmdsOps.source port:%d",cmdOps.source_port);
             if(bind(socketClient,(struct sockaddr *) &client_addr, sizeof(client_addr)) == -1){
                 if(cmdOps.option_v) {
                     fprintf(stderr, "bound unsuccesfully\n");
                 }
             }else{
-                fprintf(stderr,"bound sucesfully\n");
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "bound sucesfully\n");
+                }
             }
         }
 
         if(connect(socketClient, (struct sockaddr * ) &server_addr, sizeof(server_addr)) == -1) {
             if (cmdOps.option_v) {
-            fprintf(stderr, "%s", "connection failed...\n");
+                fprintf(stderr, "%s", "connection failed...\n");
             }
         }else{
-            fprintf(stderr, "%s","connection estalished ..\n");
+            if(cmdOps.option_v){
+                fprintf(stderr, "%s","connection estalished ..\n");
+            }
         }
 
         if(pthread_create(&clientRevThread, NULL, clientThreadHandler, &socketClient) < 0){
-            fprintf(stderr,"%s","output thread creation error");
+            if(cmdOps.option_v) {
+                fprintf(stderr, "%s", "output thread creation error");
+            }
         } else {
-            fprintf(stderr,"%s","output thread created succesfully");
+            if(cmdOps.option_v) {
+                fprintf(stderr, "%s", "output thread created succesfully");
+            }
         }
 
         if(cmdOps.timeout != 0) {
             if (pthread_create(&timerThread, NULL, timer,&socketClient) < 0) {
-                fprintf(stderr, "timer thread failed\n");
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "timer thread failed\n");
+                }
             } else {
                 timelimit = cmdOps.timeout;
-                fprintf(stderr, "timer thread created succesfully");
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "timer thread created succesfully");
+                }
             }
         }
 
 //        while(1) {
             time2 = clock();
-            fprintf(stderr,"ran timer 1\n");
+            if(cmdOps.option_v) {
+                fprintf(stderr, "ran timer 2 first time\n");
+            }
             char ch[1024];
             memset(&ch,0, sizeof ch);
             int n;
             while((n =read(0, &ch, sizeof(ch))) > 0)
             {
                 time2 = clock();
-                fprintf(stderr,"ran timer 2\n");
-                fprintf(stderr,"read:%d\n",n);
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "ran timer 2 second time\n");
+                    fprintf(stderr, "read:%d\n", n);
+                }
                 int len = strlen(ch);
                 if (sendall(socketClient, ch, &len) == -1) {
                     if(cmdOps.option_v) {
                         fprintf(stderr, "send failure\n");
                     }
-                    fprintf(stderr,"send failure\n");
                     exit(0);
                 } else {
-                    fprintf(stderr,"send succes\n");
+                    if(cmdOps.option_v) {
+                        fprintf(stderr, "send succes\n");
+                    }
                 }
                 memset(&ch,0, sizeof ch);
                 if(n < 1024){
-                    fprintf(stderr,"end of filessssssssssssssssss\n");
+                    if(cmdOps.option_v) {
+                        fprintf(stderr, "end of file for client\n");
+                    }
                     continue;
                 }
             }
@@ -327,6 +346,26 @@ void* threadHandler(void* socket){
     }
 }
 
+// get port, IPv4 or IPv6:
+in_port_t get_in_port(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return (((struct sockaddr_in*)sa)->sin_port);
+    }
+
+    return (((struct sockaddr_in6*)sa)->sin6_port);
+}
+
+// get sockaddr, IPv4 or IPv6:
+void *get_in_addr(struct sockaddr *sa)
+{
+    if (sa->sa_family == AF_INET) {
+        return &(((struct sockaddr_in*)sa)->sin_addr);
+    }
+
+    return &(((struct sockaddr_in6*)sa)->sin6_addr);
+}
+
 
 void actAsServer(struct commandOptions cmdOps){
     int socketServer; //socket with which server will receive conncetions
@@ -334,6 +373,10 @@ void actAsServer(struct commandOptions cmdOps){
     pthread_t pthreadServerSend; //thread to read from stdin and send to all other conections
     struct sockaddr_in serverAddr; //for setting addrinfo of server
     socklen_t serverAsClientaddr_size = sizeof serverAddr;
+    struct sockaddr_storage their_addr; // connector's address information
+    socklen_t sin_size;
+    char s[INET6_ADDRSTRLEN];
+
 
     //creating the socket of the server
     socketServer = socket(AF_INET, SOCK_STREAM, 0);
@@ -341,8 +384,7 @@ void actAsServer(struct commandOptions cmdOps){
     memset(&serverAddr, 0, sizeof serverAddr);
     memset(&connections, 0, sizeof connections);
     serverAddr.sin_family = AF_INET;
-    serverAddr.sin_addr.s_addr = INADDR_ANY;
-    bzero(&(serverAddr.sin_zero), 8);
+    serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
 
     if(cmdOps.port != 0) {
         fprintf(stderr,"port given: %d",cmdOps.port);
@@ -350,7 +392,7 @@ void actAsServer(struct commandOptions cmdOps){
             fprintf(stderr,"invalid input reserved ports\n");
             exit(1);
         }
-        serverAddr.sin_port = htons(cmdOps.port);
+        serverAddr.sin_port = htons((int)cmdOps.port);
     }
 
 
@@ -368,7 +410,9 @@ void actAsServer(struct commandOptions cmdOps){
         }else{
             numConnections = 1;
         }
-        fprintf(stderr,"number of connections:%d",numConnections);
+        if(cmdOps.option_v){
+            fprintf(stderr,"number of connections:%d",numConnections);
+        }
 
         if (listen(socketServer, 20) == -1) {
             if(cmdOps.option_v){
@@ -383,7 +427,9 @@ void actAsServer(struct commandOptions cmdOps){
         //create a thread for closing the progrma when there are no more clients connected given that -k is not provided
         if(cmdOps.option_k == 0){
             if(pthread_create(&connectionCloser,NULL, closeServerUponAllConectionsLeft, &socketServer) < 0){
-                fprintf(stderr,"all connections closed thread creation error\n");
+                if(cmdOps.option_v) {
+                    fprintf(stderr, "all connections closed thread creation error\n");
+                }
             }
         }
 
@@ -398,20 +444,33 @@ void actAsServer(struct commandOptions cmdOps){
             //loop over connections array to find if we have a slot to accept the incoming connection
             for(int i = 0; i < numConnections ; i++){
                 if(connections[i].inUse == FALSE){
-                    fprintf(stderr,"waiting for a connection\n");
+                    if(cmdOps.option_v == 1) {
+                        fprintf(stderr, "waiting for a connection\n");
+                    }
+                    sin_size = sizeof their_addr;
                     //accept the connection and set the fd of the client
-                    connectionFD = accept(socketServer,(struct sockaddr *)&clientAddress, &addr_size);
+                    connectionFD = accept(socketServer,(struct sockaddr *)&their_addr, &sin_size);
                     if(connectionFD == -1) {
                         if (cmdOps.option_v) {
                             fprintf(stderr, "%s", "connection denied\n");
                         }
                         continue;
                     }
-                    fprintf(stderr,"accpeted a connection\n");
+                    if(cmdOps.option_v == 1) {
+                        fprintf(stderr, "accpeted a connection\n");
+                    }
                     //create thread for each incoming connection
                     if(pthread_create(&threads[i], NULL, threadHandler, &connectionFD) < 0){
                         fprintf(stderr,"%s","thread creation error\n");
                     } else {
+                        inet_ntop(their_addr.ss_family,
+                                  get_in_addr((struct sockaddr *)&their_addr),
+                                  s, sizeof s);
+                        if(cmdOps.option_v == 1) {
+                            fprintf(stderr, "server: got connection from %s\n", s);
+                            fprintf(stderr, "port is %d\n",
+                                    ntohs(get_in_port((struct sockaddr *) &their_addr)));
+                        }
                         fprintf(stderr,"connection: %d\n", i);
                         connections[i].inUse = TRUE;
                         fprintf(stderr,"connection %d inUse %d\n", i, connections[i].inUse);
