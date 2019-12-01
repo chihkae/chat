@@ -260,9 +260,8 @@ void* reader(void* socket){
             for (int i = 0; i < 10; i++) {
                 if (connections[i].socketFD != fd && connections[i].inUse == TRUE) {
                     if (sendall(connections[i].socketFD,ch, &len) == -1) {
-//                        fprintf(stderr, "sendall failed\n");
+                        fprintf(stderr,"send all failure\n");
                     } else {
-//                        fprintf(stderr, "sendall success\n");
                     }
                 }
             }
@@ -512,16 +511,17 @@ int main(int argc, char **argv) {
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
   //for debugging purposes let user know what options they have specified that  are properly parsed
-  if(cmdOps.option_v == 0) {
-      fprintf(stderr, "option-k:%d\n", cmdOps.option_k);
-      fprintf(stderr, "option-l:%d\n", cmdOps.option_l);
-      fprintf(stderr, "option-v:%d\n", cmdOps.option_v);
-      fprintf(stderr, "option-r:%d\n", cmdOps.option_r);
-      fprintf(stderr, "option-p:%d\n", cmdOps.option_p);
-      fprintf(stderr, "option-source port:%d\n", cmdOps.source_port);
-      fprintf(stderr, "co-timeout:%d\n", cmdOps.timeout);
-      fprintf(stderr, "option-hostname:%s\n", cmdOps.hostname);
-      fprintf(stderr, "option-port:%d\n", cmdOps.port);
+  if(cmdOps.option_v == 1) {
+      printf("Command parse outcome %d\n", retVal);
+      printf("-k = %d\n", cmdOps.option_k);
+      printf("-l = %d\n", cmdOps.option_l);
+      printf("-v = %d\n", cmdOps.option_v);
+      printf("-r = %d\n", cmdOps.option_r);
+      printf("-p = %d\n", cmdOps.option_p);
+      printf("-p port = %d\n", cmdOps.source_port);
+      printf("Timeout value = %d\n", cmdOps.timeout);
+      printf("Host to connect to = %s\n", cmdOps.hostname);
+      printf("Port to connect to = %d\n", cmdOps.port);
   }
   //run program only if parsing was done properly and no options contradict one another
   if(retVal != PARSE_OK){
@@ -532,30 +532,19 @@ int main(int argc, char **argv) {
   dashKOption = cmdOps.option_k;
   //option l means to run as server or else run as client
   if(cmdOps.option_l == 1){
-      if(cmdOps.option_v){
+      if(cmdOps.option_v == 1){
           fprintf(stderr,"acting as server\n");
       }
       actAsServer(cmdOps);
       exit(0);
   }else {
-      if(cmdOps.option_v){
+      if(cmdOps.option_v == 1){
           fprintf(stderr,"acting as client\n");
       }
       actAsClient(cmdOps);
       exit(0);
   }
 
-  printf("Command parse outcome %d\n", retVal);
-
-  printf("-k = %d\n", cmdOps.option_k);
-  printf("-l = %d\n", cmdOps.option_l);
-  printf("-v = %d\n", cmdOps.option_v);
-  printf("-r = %d\n", cmdOps.option_r);
-  printf("-p = %d\n", cmdOps.option_p);
-  printf("-p port = %d\n", cmdOps.source_port);
-  printf("Timeout value = %d\n", cmdOps.timeout);
-  printf("Host to connect to = %s\n", cmdOps.hostname);
-  printf("Port to connect to = %d\n", cmdOps.port);
   exit(0);
 }
 
