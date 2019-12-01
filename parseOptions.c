@@ -31,7 +31,7 @@ int parseOptions(int argc, char * argv[], struct commandOptions * co) {
     for (i = 1; i < argc; i++) {
         // This next line is for illustraction purposes only and needs to be removed
         // once things are working
-        fprintf(stderr, "Arg %d is: %s\n", i, argv[i]);
+//        fprintf(stderr, "Arg %d is: %s\n", i, argv[i]);
 
         // Check for the various options
         if ((strcmp(argv[i], K_OPTION) == 0) && (!lastTwo)) {
@@ -105,7 +105,6 @@ int parseOptions(int argc, char * argv[], struct commandOptions * co) {
     }
     if(co->option_l ==1 && co->port == 0){
         if(co->hostname != 0){
-            fprintf(stderr,"co->hostname:%s\n", co->hostname);
             co->port = atoi(co->hostname);
         }
     }

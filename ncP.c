@@ -52,24 +52,23 @@ void reader(){
     int n;
     //keep reading on stdin
     while((n =read(0, &ch, sizeof(ch)))){
-        fprintf(stderr,"reading");
         int len = strlen(ch);
         //don't need to send to stdin or server socket
         for (int i = 2; i < 12; i++) {
             if (pfds[i].fd != -1) {
-                fprintf(stderr,"found one not -1");
                 if (sendall(pfds[i].fd, ch,&len) == -1) {
                     fprintf(stderr,"stdin read error\n");
                 }
             }
         }
         if(n < 1024){
-            fprintf(stderr,"n is 0\n");
             return;
         }
         memset(&ch, 0, sizeof ch);
     }
-    fprintf(stderr,"out of while loop\n");
+    if(n == 0){
+        exit(0);
+    }
 }
 
 void actAsClient(struct commandOptions cmdOps){
@@ -81,12 +80,16 @@ void actAsClient(struct commandOptions cmdOps){
 
     //check if creation of socket was succesful or not
     if (socketClient == -1) {
-        fprintf(stderr, "%s", "socket creation failed...\n");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "%s", "socket creation failed...\n");
+        }
         if(close(socketClient) < 0){
             fprintf(stderr,"closing socket failure\n");
         }
     }else{
-        fprintf(stderr, "%s", "Socket successfully created..\n");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "%s", "Socket successfully created..\n");
+        }
     }
 
     memset(&cli_addr, 0, sizeof cli_addr);
@@ -95,7 +98,9 @@ void actAsClient(struct commandOptions cmdOps){
     remote_addr.sin_family = AF_INET;
 
     if(cmdOps.hostname != NULL){
-        fprintf(stderr,"provided remote hostname\n");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "provided remote hostname\n");
+        }
         struct hostent * hostnm = gethostbyname(cmdOps.hostname);
         remote_addr.sin_addr.s_addr =  *(long*)hostnm->h_addr_list[0];
     }else{
@@ -112,7 +117,9 @@ void actAsClient(struct commandOptions cmdOps){
             fprintf(stderr,"invalid port: reserved \n");
             exit(1);
         }
-        fprintf(stderr,"provided remote port\n");
+        if(cmdOps.option_v) {
+            fprintf(stderr, "provided remote port\n");
+        }
         remote_addr.sin_port = htons(cmdOps.port);
     }else if(cmdOps.port == 0){
         fprintf(stderr,"missing remote port\n");
@@ -130,13 +137,13 @@ void actAsClient(struct commandOptions cmdOps){
             }
             exit(1);
         }
-        fprintf(stderr, "source port provided\n");
         cli_addr.sin_family = AF_INET;
         cli_addr.sin_addr.s_addr = INADDR_ANY;
-        fprintf(stderr,"cmdsourceports:%d\n",cmdOps.source_port);
         cli_addr.sin_port = htons(cmdOps.source_port);
         if (bind(socketClient, (struct sockaddr *) &cli_addr, sizeof(cli_addr)) == 0) {
-            fprintf(stderr, "%s", "Binded Correctly\n");
+            if(cmdOps.option_v) {
+                fprintf(stderr, "%s", "Binded Correctly\n");
+            }
         } else {
             if(cmdOps.option_v) {
                 fprintf(stderr, "%s", "Unable to bind\n");
@@ -178,42 +185,34 @@ void actAsClient(struct commandOptions cmdOps){
                 //if stdin got polled
                 if (clientPfds[0].revents & POLLIN) {
                     char ch[1024];
-                    memset(ch, 0, sizeof ch);
-
-                    int n;
-                    //keep reading on stdin
-                    while((n =read(0, &ch, sizeof(ch))) > 0)
-                    {
-                        int len = strlen(ch);
-                        //send stdin message to server
-                        if (sendall(socketClient, ch,&len) == -1) {
-                            fprintf(stderr,"stdin read error\n");
-                        }
-                        if(n < 1024){
-                            break;
-                        }
-                        memset(ch, 0, sizeof ch);
-                    }
-                    if(n == 0){
-                        if(cmdOps.option_v) {
-                            fprintf(stderr, "EOF in reading from client stdin\n");
-                        }
+                    memset(ch, 0, sizeof(ch));
+                    if(read(0, &ch, sizeof(ch)) == 0){
                         exit(0);
                     }
+                    int len = strlen(ch);
+                    if (sendall(socketClient, ch,&len) == -1) {
+                        fprintf(stderr,"stdin read error\n");
+                    }
+
                    //if socket is polled, meaning client received message from server
                 } else if (clientPfds[1].revents & POLLIN) {
                     char ch[1024];
                     memset(&ch, 0, sizeof ch);
                     int n = recv(clientPfds[1].fd, ch, sizeof(ch), 0);
                     if(n == 0){
-                        fprintf(stderr,"server disconnection\n");
+                        if(cmdOps.option_v) {
+                            fprintf(stderr, "server disconnection\n");
+                        }
                         exit(0);
                     } else if(n == -1){
                         fprintf(stderr,"error in receive of client\n");
                         continue;
                     }else if(n > 0) {
-                        fprintf(stderr,"recieved message from server\n");
+                        if(cmdOps.option_v) {
+                            fprintf(stderr, "recieved message from server\n");
+                        }
                         int len = strlen(ch);
+                        //write server's message to stdout
                         if (write(1, ch, len) < 0) {
                             fprintf(stderr, "write to stdout error\n");
                         }
@@ -253,20 +252,19 @@ void *get_in_addr(struct sockaddr *sa)
 }
 
 void actAsServer(struct commandOptions cmdOps){
-    int socketServer;
+    int socketServer;  //socket that listens for incoming connections
     int numofConnections = 0;
-    struct sockaddr_in serverAddr;
-    socklen_t serverAsClientaddr_size = sizeof serverAddr;
+    struct sockaddr_in serverAddr; //address info of the server
     struct sockaddr_storage their_addr; // connector's address information
-    socklen_t sin_size;
-    char s[INET6_ADDRSTRLEN];
+    socklen_t sin_size; //used for connector's address info
+    char s[INET6_ADDRSTRLEN]; //used to store connector's address info
     //creating the socket
     socketServer = socket(AF_INET, SOCK_STREAM, 0);
     //setting properties of teh serverAddr
     memset(&serverAddr, 0, sizeof serverAddr);
-//    memset(&pfds, 0, sizeof pfds);
     serverAddr.sin_family = AF_INET;
     serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+
     if(cmdOps.port != 0) {
         if(cmdOps.port < 1023 || cmdOps.port > 65535){
             fprintf(stderr,"invalid: reserved ports in server\n");
@@ -283,8 +281,8 @@ void actAsServer(struct commandOptions cmdOps){
     }
 
     if(cmdOps.option_r == 1){
-        //10 connections plus stdin and socket of the server
-        numofConnections = 12;
+        //10 connections if option r given in server
+        numofConnections = 10;
     }else{
         //1 connection plus stdin and socket of the server
         numofConnections = 1;
@@ -389,15 +387,21 @@ void actAsServer(struct commandOptions cmdOps){
                             //a client has disconnected, server must decrement fd count and set original client fd
                             //to -1 to free up space for other clients to connect
                             if (nbytes == 0) {
-                                fprintf(stderr, "client:%d, disconnected\n",i);
+                                if(cmdOps.option_v) {
+                                    fprintf(stderr, "client:%d, disconnected\n", i);
+                                }
                                 pfds[i].fd = -1;
                                 currentConnections--;
-                                fprintf(stderr,"currentConnections after disconnection:%d\n", currentConnections);
+                                if(cmdOps.option_v) {
+                                    fprintf(stderr, "currentConnections after disconnection:%d\n", currentConnections);
+                                }
                                 if(dashKoption == 0){
                                     if(currentConnections == 0){
                                         pfds[0].fd = -1;
                                         pfds[1].fd = -1;
-                                        fprintf(stderr,"exiting from close\n");
+                                        if(cmdOps.option_v) {
+                                            fprintf(stderr, "exiting from close\n");
+                                        }
                                         close(socketServer);
                                         exit(0);
                                     }
@@ -411,8 +415,6 @@ void actAsServer(struct commandOptions cmdOps){
                                     if (pfds[z].fd != -1 && pfds[z].fd != sender_fd) {
                                         if (sendall(pfds[z].fd, buff, &len) == -1) {
                                             fprintf(stderr, "send failure\n");
-                                        } else {
-                                            fprintf(stderr, "send success\n");
                                         }
                                     }
                                 }
@@ -424,10 +426,7 @@ void actAsServer(struct commandOptions cmdOps){
             }
         }
     }else{
-        fprintf(stderr,"else case\n");
-        if(cmdOps.option_v) {
-            fprintf(stderr, "server: bind failure\n");
-        }
+        fprintf(stderr,"server: binding failure\n");
         if(close(socketServer)< 0){
             fprintf(stderr,"closing  socket error\n");
         }
@@ -435,13 +434,11 @@ void actAsServer(struct commandOptions cmdOps){
 }
 
 int main(int argc, char **argv) {
-  
-  // This is some sample code feel free to delete it
-  // This is the main program for the thread version of nc
-  
+
   struct commandOptions cmdOps;
   int retVal = parseOptions(argc, argv, &cmdOps);
-  if(cmdOps.option_v) {
+    //for debugging purposes let user know what options they have specified that  are properly parsed
+   if(cmdOps.option_v) {
       printf("Command parse outcome %d\n", retVal);
       printf("-k = %d\n", cmdOps.option_k);
       printf("-l = %d\n", cmdOps.option_l);
